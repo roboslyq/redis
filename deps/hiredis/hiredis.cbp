@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6"/>
+	<Project>
+		<Option title="hiredis"/>
+		<Option makefile_is_custom="1"/>
+		<Option compiler="gcc"/>
+		<Option virtualFolders="CMake Files\;CMake Files\src\;CMake Files\deps\;CMake Files\deps\hiredis\;"/>
+		<Build>
+			<Target title="all">
+				<Option working_dir="/cygdrive/d/IdeaProjects/redis/deps/hiredis"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 all"/>
+					<CompileFile command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="hiredis-test">
+				<Option output="/cygdrive/d/IdeaProjects/redis/src/hiredis-test.exe" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/cygdrive/d/IdeaProjects/redis/src"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/cygdrive/d/IdeaProjects/redis/deps/hiredis/."/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/x86_64-pc-cygwin"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/backward"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include"/>
+					<Add directory="/usr/include"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/../../../../lib/../include/w32api"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 hiredis-test"/>
+					<CompileFile command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="hiredis-test/fast">
+				<Option output="/cygdrive/d/IdeaProjects/redis/src/hiredis-test.exe" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/cygdrive/d/IdeaProjects/redis/src"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/cygdrive/d/IdeaProjects/redis/deps/hiredis/."/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/x86_64-pc-cygwin"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/backward"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include"/>
+					<Add directory="/usr/include"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/../../../../lib/../include/w32api"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 hiredis-test/fast"/>
+					<CompileFile command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="hiredis">
+				<Option output="/cygdrive/d/IdeaProjects/redis/deps/hiredis/cyghiredis.dll" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/cygdrive/d/IdeaProjects/redis/deps/hiredis"/>
+				<Option object_output="./"/>
+				<Option type="3"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/cygdrive/d/IdeaProjects/redis/deps/hiredis/."/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/x86_64-pc-cygwin"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/backward"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include"/>
+					<Add directory="/usr/include"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/../../../../lib/../include/w32api"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 hiredis"/>
+					<CompileFile command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="hiredis/fast">
+				<Option output="/cygdrive/d/IdeaProjects/redis/deps/hiredis/cyghiredis.dll" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/cygdrive/d/IdeaProjects/redis/deps/hiredis"/>
+				<Option object_output="./"/>
+				<Option type="3"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/cygdrive/d/IdeaProjects/redis/deps/hiredis/."/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/x86_64-pc-cygwin"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include/c++/backward"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/include"/>
+					<Add directory="/usr/include"/>
+					<Add directory="/usr/lib/gcc/x86_64-pc-cygwin/9.3.0/../../../../lib/../include/w32api"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 hiredis/fast"/>
+					<CompileFile command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make.exe -j4 -f &quot;/cygdrive/d/IdeaProjects/redis/deps/hiredis/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/async.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/async.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/dict.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/dict.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/hiredis.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/hiredis.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/net.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/net.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/read.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/read.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/sds.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/sds.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/sockcompat.c">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/sockcompat.h">
+			<Option target="hiredis"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/test.c">
+			<Option target="hiredis-test"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/src/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\src\"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\deps\hiredis\"/>
+		</Unit>
+		<Unit filename="/cygdrive/d/IdeaProjects/redis/deps/hiredis/hiredis.pc.in">
+			<Option virtualFolder="CMake Files\deps\hiredis\"/>
+		</Unit>
+	</Project>
+</CodeBlocks_project_file>
