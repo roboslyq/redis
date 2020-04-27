@@ -4784,6 +4784,7 @@ int checkForSentinelMode(int argc, char **argv) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
+    /* 如果开启了AOF ,仅从AOF中恢复*/
     if (server.aof_state == AOF_ON) {
         if (loadAppendOnlyFile(server.aof_filename) == C_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
@@ -5079,6 +5080,7 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
+        /* 从持久AOF或RDB文件中恢复数据 */
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {

@@ -35,7 +35,7 @@
 #include <stdio.h>
 
 #include "release.h"
-#include "version.h"
+#include "version.h" // 由脚本mkreleasehdr.sh动态生成
 #include "crc64.h"
 
 char *redisGitSHA1(void) {

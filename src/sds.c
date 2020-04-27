@@ -40,7 +40,12 @@
 #include "sdsalloc.h"
 
 const char *SDS_NOINIT = "SDS_NOINIT";
-
+//sdsHdrSize函数获得sdshdr的内存占用长度
+/*
+ * 注意：sizeof是获取对应数据结构所占内存大小，这个不是函数，返回的是size_t也就是个整型。
+ * 之后调用s_malloc函数完成了内存的分配工作，内存的计算是sdshdr的长度（hdrlen），加上字符内容的长度（initlen），加一（字符串结尾的’\0’，
+ * 保持和c的一致）。这里的s_malloc实际上是调用的zmalloc函数，在zmalloc.c中实现。
+ */
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -57,6 +62,7 @@ static inline int sdsHdrSize(char type) {
     return 0;
 }
 
+/* 根据长度，判断SDS类型*/
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
@@ -86,16 +92,31 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
+/*
+描述：根据指定的init和起长度initlen，创建新的sds
+参数：
+   In：
+       init：初始化字符串指针
+       initlen: 字符串长度
+返回值：
+   成功：返回新的sds
+   失败：返回NULL
+*/
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
+    // 最终构建目标sds
     sds s;
+    //根据initlen长度来计算sdshdr 头部header的类型
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
+    //如果是SDS_TYPE_5,自动升级为SDS_TYPE_8
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
+    //计算headr的大小
     int hdrlen = sdsHdrSize(type);
+    //指向header flag的指针
     unsigned char *fp; /* flags pointer. */
-
+    // 分配内存(注意长度为：hdrlen+initlen+1 )
     sh = s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
@@ -151,6 +172,7 @@ sds sdsempty(void) {
 }
 
 /* Create a new sds string starting from a null terminated C string. */
+/* 创建一个新的 sds */
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);

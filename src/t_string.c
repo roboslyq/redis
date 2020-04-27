@@ -63,7 +63,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_XX (1<<1)          /* Set if key exists. */
 #define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
-#define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl */
+#define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl ( TTL意思指: Time To Live)*/
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */

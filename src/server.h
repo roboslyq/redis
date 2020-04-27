@@ -600,13 +600,20 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
+/*
+ * 1、对五种基本对象（string、hash、list、set、sort set）进行包装。
+ * 2、Redis没有直接使用（string、hash、list、set、sort set）这5类数据结构来实现键值对的数据库，而是统一通过redisObject实现。
+ * */
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4;// 类型
+    unsigned encoding:4;// 编码
+    // 对象最后一次被访问的时间
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
+    // 引用计数
     int refcount;
+    // 指向实际值的指针
     void *ptr;
 } robj;
 
