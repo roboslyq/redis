@@ -650,16 +650,18 @@ typedef struct clientReplyBlock {
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
+/*redis 数据库结构*/
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
-    dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
-    dict *ready_keys;           /* Blocked keys that received a PUSH */
-    dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
-    int id;                     /* Database ID */
-    long long avg_ttl;          /* Average TTL, just for stats */
-    unsigned long expires_cursor; /* Cursor of the active expire cycle. */
-    list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
+        dict *dict;                 /* The keyspace for this DB 当前DB所有Key集合*/
+        dict *expires;              /* Timeout of keys with a timeout set 当前DB所有设置了expired time的key集合*/
+        dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) 处于阻塞状态的键和相应的client（主要用于List类型的阻塞操作）*/
+        dict *ready_keys;           /* Blocked keys that received a PUSH 准备好数据可以解除阻塞状态的键和相应的client*/
+        dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS 被监听的KEY，用于事务处理：MULTI和EXEC 用于标记一个事务块的开始。
+                                 * 事务块内的多条命令会按照先后顺序被放进一个队列当中，最后由 EXEC 命令原子性(atomic)地执行*/
+        int id;                     /* Database ID DB编号，默认一共有16个DB,从0开始编号*/
+        long long avg_ttl;          /* Average TTL, just for stats 数据库内所有键的平均TTL（生存时间）*/
+        unsigned long expires_cursor; /* Cursor of the active expire cycle. */
+        list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
 /* Client MULTI/EXEC state */
