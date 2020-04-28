@@ -581,17 +581,18 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-#define OBJ_ENCODING_RAW 0     /* Raw representation */
-#define OBJ_ENCODING_INT 1     /* Encoded as integer */
-#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+/* 对象类型的定义，与struct redisObject中的type对应 */
+#define OBJ_ENCODING_RAW 0     /* Raw representation 简单动态字符串*/
+#define OBJ_ENCODING_INT 1     /* Encoded as integer Long类型整数*/
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table HashTable简写，即字典*/
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
-#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
-#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
-#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
-#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
-#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist 压缩列表*/
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset 整数集合*/
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist  跳跃列表和字典 */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding emb编码的简单动态字符串 */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists  */
+    #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -601,19 +602,23 @@ typedef struct RedisModuleDigest {
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 /*
+ * =======>核心类，通过type与encoding组合，实现不同type的不同场景的不同编码，从而实现内存的存储优化。
  * 1、对五种基本对象（string、hash、list、set、sort set）进行包装。
  * 2、Redis没有直接使用（string、hash、list、set、sort set）这5类数据结构来实现键值对的数据库，而是统一通过redisObject实现。
  * */
 typedef struct redisObject {
-    unsigned type:4;// 类型
-    unsigned encoding:4;// 编码
+    unsigned type:4;// 对象的类型，也就是我们说的 string、list、hash、set、zset中的一种，可以使用命令 TYPE key 来查看。
+    unsigned encoding:4;/* 1、encoding属性记录了队形所使用的编码(底层数据结构)，即这个对象底层使用哪种数据结构实现。详情见下面定义的OBJ_ENCODING_XXX
+                        * 2、encoding可以根据不同的使用场景来为一个对象设置不同的编码，从而优化在某一场景下的效率，极大的提升了 Redis 的灵活性和效率。
+                        * 3、可以通过函数strEncoding()来获取具体的编码方式
+                        * */
     // 对象最后一次被访问的时间
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    // 引用计数
+    // 键值对对象的引用统计。当此值为 0 时，回收对象。
     int refcount;
-    // 指向实际值的指针
+    // 指向底层实现数据结构的指针。就是实际存放数据的地址。
     void *ptr;
 } robj;
 

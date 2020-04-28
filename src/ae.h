@@ -29,7 +29,15 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/**
+ * Redis没有选择libevent以及libev为其事件模型库，而是自己写了一个事件模型。
+ * 主要支持了epoll、select、kqueue、以及基于Solaris的event ports。主要提供了对两种类型的事件驱动：
+ *      1、 IO事件（文件事件），包括有IO的读事件和写事件。
+ *      2、 定时器事件，包括有一次性定时器和循环定时器。
+ *      3、 Reactor模式，串行处理事件
+ *      4、 具有定时事件功能（但是不能过多，因为是使用链表实现的）
+ *      5、 优先处理读事件
+ */
 #ifndef __AE_H__
 #define __AE_H__
 
@@ -94,6 +102,7 @@ typedef struct aeFiredEvent {
 } aeFiredEvent;
 
 /* State of an event based program */
+/* 事件对象  进行任务处理的重要数据结构。*/
 typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */

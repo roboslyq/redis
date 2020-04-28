@@ -2691,10 +2691,12 @@ void resetServerStats(void) {
     server.stat_unexpected_error_replies = 0;
     server.aof_delayed_fsync = 0;
 }
-
+/**
+ * 初始化服务器
+ */
 void initServer(void) {
     int j;
-
+    // 注册几个事件响应处理器，比如前台模式运行或者调试模式的处理
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
@@ -2703,7 +2705,7 @@ void initServer(void) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
     }
-
+    // 初始化客户端相关的参数，设置到 server 中
     /* Initialization after setting defaults from the config system. */
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
@@ -2730,9 +2732,12 @@ void initServer(void) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
-
+    // 全局共享对象, 比如 OK, 1-10000, ...
+    // 性能优化, 避免对相同的对象反复创建
     createSharedObjects();
     adjustOpenFilesLimit();
+
+    // ======>创建事件循环对象 (aeEventLoop), 在 ae.c 中实现
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2740,9 +2745,12 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
+
+    //  ======>创建db对象，所有数据存储其中
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    //  ======>打开服务端口监听
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
@@ -2769,6 +2777,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    // 初始化各db，实际就是由这么几个数组来动作db的
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -2782,12 +2791,15 @@ void initServer(void) {
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    // pub/sub 参数初始化
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     server.pubsub_patterns_dict = dictCreate(&keylistDictType,NULL);
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
     server.cronloops = 0;
+
+    // rdb,aof 参数初始化
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
     server.module_child_pid = -1;
@@ -2830,6 +2842,8 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    // 创建定时器，用于运行后台事务，每隔1s运行一次
+    // 由 serverCron 承载任务，执行任务如 指标统计，操作日志持久化，db扩容,客户端管理...
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -2837,6 +2851,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    // 创建socket文件监控, 由 acceptTcpHandler 承载处理
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -2867,6 +2882,7 @@ void initServer(void) {
     }
 
     /* Open the AOF file if needed. */
+    // 如果开启了AOF功能，就打开AOF文件
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -2889,8 +2905,11 @@ void initServer(void) {
 
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
+    // lua 脚本初始化
     scriptingInit(1);
+    //     初始化慢查询日志变量
     slowlogInit();
+    // 延迟监控初始化，仅创建变量
     latencyMonitorInit();
 }
 
@@ -4906,11 +4925,26 @@ int iAmMaster(void) {
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
-
+/**
+ * ========》redis启动入口类
+ *  1. Redis 会设置一些回调函数，当前时间，随机数的种子。回调函数实际上什么？举个例子，比如 Q/3 要给 Redis 发送一个关闭的命令，让它去做一些优雅的关闭，做一些扫尾清楚的工作，
+ *    这个工作如果不设计回调函数，它其实什么都不会干。其实 C 语言的程序跑在操作系统之上，Linux 操作系统本身就是提供给我们事件机制的回调注册功能，所以它会设计这个回调函数，让你注册上，
+ *    关闭的时候优雅的关闭，然后它在后面可以做一些业务逻辑。
+    2. 不管任何软件，肯定有一份配置文件需要配置。首先在服务器端会把它默认的一份配置做一个初始化。
+    3. Redis 在 3.0 版本正式发布之前其实已经有筛选这个模式了，但是这个模式，我很少在生产环境在用。Redis 可以初始化这个模式，比较复杂。
+    4. 解析启动的参数。其实不管什么软件，它在初始化的过程当中，配置都是由两部分组成的。第一部分，静态的配置文件；第二部分，动态启动的时候，main，就是参数给它的时候进去配置。
+    5. 把服务端的东西拿过来，装载 Config 配置文件，loadServerConfig。
+    6. 初始化服务器，initServer。
+    7. 从磁盘装载数据。
+    8. 有一个主循环程序开始干活，用来处理客户端的请求，并且把这个请求转到后端的业务逻辑，帮你完成命令执行，然后吐数据，这么一个过程。
+ * @param argc
+ * @param argv
+ * @return
+ */
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
-
+// 预定义处理：测试参数相关
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {
@@ -4938,11 +4972,14 @@ int main(int argc, char **argv) {
 #endif
 
     /* We need to initialize our libraries, and the server configuration. */
+    /* 初始化库*/
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+    // 设置些默认值, 随机数等等
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
+    // oom 回调处理
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
@@ -4950,8 +4987,11 @@ int main(int argc, char **argv) {
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
+    // 检查服务器是否以 Sentinel 模式启动
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    // 使用内置的参数初始化服务器默认配置(即redis也可以不指定具体的redis.conf配置文件也可以启动，这些默认参数在这里进行初始化), 将变化体现到 server 变量上
     initServerConfig();
+    //
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
@@ -4971,7 +5011,7 @@ int main(int argc, char **argv) {
         initSentinelConfig();
         initSentinel();
     }
-
+    // 加载配置文件及其他命令
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
@@ -4979,7 +5019,7 @@ int main(int argc, char **argv) {
         redis_check_rdb_main(argc,argv,NULL);
     else if (strstr(argv[0],"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
-
+    //--------参数大于等于2，表进指定了配置文件，故从配置文件中解析相关参数
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -5041,7 +5081,9 @@ int main(int argc, char **argv) {
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
+        //重置默认的参数
         resetServerSaveParams();
+        //从将配置文件中的参数保存的Server配置中
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
@@ -5064,7 +5106,8 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
-
+    // =======>初始化服务器
+    // 重点如: 绑定监听端口号，设置 acceptTcpHandler 回调函数
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
@@ -5114,6 +5157,7 @@ int main(int argc, char **argv) {
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
+    // 主循环服务, 只有收到 stop 命令后，才会退出
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

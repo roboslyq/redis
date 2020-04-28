@@ -35,6 +35,7 @@
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
+    // 控制了String最大长度不能超过512M
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
         return C_ERR;
@@ -57,17 +58,28 @@ static int checkStringLength(client *c, long long size) {
  *
  * If ok_reply is NULL "+OK" is used.
  * If abort_reply is NULL, "$-1" is used. */
-
+// key的状态检查
 #define OBJ_SET_NO_FLAGS 0
-#define OBJ_SET_NX (1<<0)          /* Set if key not exists. */
-#define OBJ_SET_XX (1<<1)          /* Set if key exists. */
+#define OBJ_SET_NX (1<<0)          /* Set if key not exists.  Key不存在*/
+#define OBJ_SET_XX (1<<1)          /* Set if key exists. Key存在 */
 #define OBJ_SET_EX (1<<2)          /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)          /* Set if time in ms in given */
 #define OBJ_SET_KEEPTTL (1<<4)     /* Set and keep the ttl ( TTL意思指: Time To Live)*/
 
+/*
+ * 保存一个String类型
+ * *c : 客户端
+ * flags:
+ * *key: key值，具体对象为redisObject
+ * *val: value值，具体对象为redisObject
+ * *expire:超时时间
+ * unit:时间单位
+ * *ok_reply:插入成功响应
+ * *abort_reply:插入失败响应
+ * */
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-
+    //如果有设置超时时间
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;

@@ -60,6 +60,11 @@
     #endif
 #endif
 
+/**
+ * 创建事件循环对象
+ * @param setsize
+ * @return
+ */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;

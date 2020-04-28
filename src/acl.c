@@ -33,7 +33,7 @@
 #include <ctype.h>
 
 /* =============================================================================
- * Global state for ACLs
+ * Global state for ACLs 访问控制列表（Access Control Lists，ACL）
  * ==========================================================================*/
 
 rax *Users; /* Table mapping usernames to user structures. */
