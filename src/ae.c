@@ -43,9 +43,11 @@
 #include "ae.h"
 #include "zmalloc.h"
 #include "config.h"
-
+// 使用#ifdef 来实现多态
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+
+/** 选择不同的io模型, 优先级: evport > epoll > kqueue > select */
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -82,6 +84,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
+    // 根据系统不同，选择不同的实现，C里面的多态自然是用 #ifdef 来实现了
+    // 具体实现有如下四种：ae_kqueue.c  ae_epoll.c ae_avport.c  ae_select.c
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */

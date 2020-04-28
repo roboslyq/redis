@@ -2368,7 +2368,7 @@ void initServerConfig(void) {
     R_PosInf = 1.0/R_Zero;
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
-
+    //设立命令表
     /* Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
@@ -2402,7 +2402,7 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
-
+//    初始化配置文件
     initConfigValues();
 }
 
@@ -5083,7 +5083,7 @@ int main(int argc, char **argv) {
         }
         //重置默认的参数
         resetServerSaveParams();
-        //从将配置文件中的参数保存的Server配置中
+        //======>从将配置文件中的参数保存的Server配置中
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
@@ -5111,9 +5111,10 @@ int main(int argc, char **argv) {
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
+    //输入启动时，redis背景图
     redisAsciiArt();
     checkTcpBacklogSettings();
-
+    //非sentinel模式下，打印redis启动成功日志：“1896:M 28 Apr 2020 15:11:35.775 # Server initialized”
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");

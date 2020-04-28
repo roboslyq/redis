@@ -30,13 +30,24 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 /**
- * Redis没有选择libevent以及libev为其事件模型库，而是自己写了一个事件模型。
- * 主要支持了epoll、select、kqueue、以及基于Solaris的event ports。主要提供了对两种类型的事件驱动：
- *      1、 IO事件（文件事件），包括有IO的读事件和写事件。
- *      2、 定时器事件，包括有一次性定时器和循环定时器。
- *      3、 Reactor模式，串行处理事件
- *      4、 具有定时事件功能（但是不能过多，因为是使用链表实现的）
- *      5、 优先处理读事件
+ * 1、 Redis没有选择libevent以及libev为其事件模型库，而是自己写了一个异步事件库模型库-AE:“A simple event-driven programming library”。
+ *
+ * 2、ae模块封装了 select、epoll、avport 以及 kqueue 这些 I/O 多路复用函数，为上层提供了相同的接口。
+ *   主要支持了epoll、select、kqueue、以及基于Solaris的event ports。主要提供了对两种类型的事件驱动：
+ *      1）、 IO事件（文件事件），包括有IO的读事件和写事件。
+ *      2）、 定时器事件，包括有一次性定时器和循环定时器。
+ *      3)、 Reactor模式，串行处理事件
+ *      4)、 具有定时事件功能（但是不能过多，因为是使用链表实现的）
+ *      5)、 优先处理读事件
+ *
+ * 3、ae库源文件如下：
+ *      文件	            用途
+ *      ae.h	        AE事件库接口定义
+ *      ae.c	        AE事件库实现
+ *      ae_epoll.c	    epoll绑定
+ *      ae_evport.c 	evport绑定
+ *      ae_kqueue.c	    kqueue绑定
+ *      ae_select.c	    select绑定
  */
 #ifndef __AE_H__
 #define __AE_H__
