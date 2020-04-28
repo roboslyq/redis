@@ -31,7 +31,7 @@
 #include <math.h> /* isnan(), isinf() */
 
 /*-----------------------------------------------------------------------------
- * String Commands
+ * String Commands<字符串命令实现>
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {

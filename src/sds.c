@@ -39,6 +39,10 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+/**
+ * 5种数据类型中的第1种:string
+ */
+
 const char *SDS_NOINIT = "SDS_NOINIT";
 //sdsHdrSize函数获得sdshdr的内存占用长度
 /*

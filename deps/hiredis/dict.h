@@ -32,7 +32,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/**
+ * 5种数据类型中的第3种：数据字典
+ */
 #ifndef __DICT_H
 #define __DICT_H
 
