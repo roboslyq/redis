@@ -43,13 +43,15 @@
  * recompress: 1 bit, bool, true if node is temporarry decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
+/** quickList编码实现*/
+// 节点quicklistNode定义
 typedef struct quicklistNode {
-    struct quicklistNode *prev;
-    struct quicklistNode *next;
+    struct quicklistNode *prev; //前置节点
+    struct quicklistNode *next; //后置节点
     unsigned char *zl;
-    unsigned int sz;             /* ziplist size in bytes */
-    unsigned int count : 16;     /* count of items in ziplist */
-    unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
+    unsigned int sz;             /* ziplist size in bytes ziplist数据量大小(Byte)*/
+    unsigned int count : 16;     /* count of items in ziplist  ziplist节点数量*/
+    unsigned int encoding : 2;   /* RAW==1 or LZF==2    编码*/
     unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */

@@ -33,7 +33,17 @@
 
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
-
+/* ---------------------------------------
+ *    1、 ZIPLIST_H 定义[ziplist本质就是一个char数组]，但对char数据存放元素做了如下规定：
+ *
+ *       [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
+ *        |             |          |       |       |     |
+ *     zlbytes        zltail    entries   entry"2"    entry "5"   end
+ *
+ *     2、ziplist是为节省内存空间而生的。
+ *        ziplist是一个为Redis专门提供的底层数据结构之一，本身可以有序也可以无序。当作为list和hash的底层实现时，节点之间没有顺序；
+ *        当作为zset的底层实现时，节点之间会按照大小顺序排列。
+ * */
 unsigned char *ziplistNew(void);
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
