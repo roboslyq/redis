@@ -30,17 +30,19 @@
 
 
 #include <sys/epoll.h>
-
+/** 底层epoll多路复用初始化，然后存放在aeEventLoop中 void * 类型的apidata，隐藏了底层的实现。 */
 typedef struct aeApiState {
     int epfd;
     struct epoll_event *events;
 } aeApiState;
 
+//ae底层的数据创建以及初始化
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
     state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
+    //创建setsize个epoll_event
     if (!state->events) {
         zfree(state);
         return -1;

@@ -2590,17 +2590,28 @@ void checkTcpBacklogSettings(void) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
+/** 监听IP + PORT*/
+/**
+ * @param port   PORT 绑定端口
+ * @param fds   TCP socket文件描述符数组
+ * @param count TCP socket文件描述符数量
+ * @return
+ */
 int listenToPort(int port, int *fds, int *count) {
     int j;
 
     /* Force binding of 0.0.0.0 if no bind address is specified, always
-     * entering the loop if j == 0. */
+     * entering the loop if j == 0.
+     * 如果bindaddr_count =0 ，则强制绑定 0.0.0.0 。所以循环条件加了j==0。即最后循环这一次
+     * */
     if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
     for (j = 0; j < server.bindaddr_count || j == 0; j++) {
         if (server.bindaddr[j] == NULL) {
             int unsupported = 0;
             /* Bind * for both IPv6 and IPv4, we enter here only if
-             * server.bindaddr_count == 0. */
+             * server.bindaddr_count == 0.
+             * 绑定IPv4和IPv6
+             * */
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
                 server.tcp_backlog);
             if (fds[*count] != ANET_ERR) {

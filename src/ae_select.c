@@ -58,7 +58,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(eventLoop->apidata);
 }
-
+//添加监听的事件，其中如果该fd对应的事件已经存在，则为修改合并旧的事件
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
 
@@ -66,7 +66,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) FD_SET(fd,&state->wfds);
     return 0;
 }
-
+//删除指定事件的监听
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
 

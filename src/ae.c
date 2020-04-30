@@ -63,19 +63,21 @@
 #endif
 
 /**
- * 创建事件循环对象
+ * 创建事件循环对象: setsize为最大事件的的个数，对于epoll来说也是epoll_event的个数
  * @param setsize
  * @return
  */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
-
+    //分配该结构体的内存空间
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
-    eventLoop->setsize = setsize;
+
+    //初始化
+    eventLoop->setsize = setsize; //最多setsize个事件
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
@@ -86,6 +88,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->flags = 0;
     // 根据系统不同，选择不同的实现，C里面的多态自然是用 #ifdef 来实现了
     // 具体实现有如下四种：ae_kqueue.c  ae_epoll.c ae_avport.c  ae_select.c
+    //这一步为创建底层IO处理的数据，如epoll，创建epoll_event,和epfd
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -158,7 +161,16 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
-
+/**
+ * 对于创建文件事件，需要传入一个该事件对应的处理程序，当事件发生时，会调用对应的回调函数。
+ * 这里设计的aeFileEvent结构体就是将事件源（FD），事件，事件处理程序关联起来。
+ * @param eventLoop
+ * @param fd
+ * @param mask
+ * @param proc
+ * @param clientData
+ * @return
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
