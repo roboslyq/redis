@@ -1367,10 +1367,10 @@ struct redisServer {
     int list_compress_depth;
     /* time cache */
     _Atomic time_t unixtime;    /* Unix time sampled every cron cycle. */
-    time_t timezone;            /* Cached timezone. As set by tzset(). */
+    time_t timezone;            /* Cached timezone. As set by tzset(). 时区，通过tzset()设置*/
     int daylight_active;        /* Currently in daylight saving time. */
-    mstime_t mstime;            /* 'unixtime' in milliseconds. */
-    ustime_t ustime;            /* 'unixtime' in microseconds. */
+    mstime_t mstime;            /* 'unixtime' in milliseconds. 毫秒 */
+    ustime_t ustime;            /* 'unixtime' in microseconds. 微秒*/
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
@@ -1454,6 +1454,20 @@ typedef struct pubsubPattern {
 
 typedef void redisCommandProc(client *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+/**
+ * redis命令表解释：
+    name：命令的名字
+    proc：一个指向命令的实现函数的指针
+    arity：参数的数量。可以用 -N 表示 >= N
+    sflags：字符串形式的 FLAG，用来计算以下的真实 FLAG
+    flags：位掩码形式的 FLAG，根据 sflags 的字符串计算得出
+    get_keys_proc：一个可选的函数，用于从命令中取出 key 参数，仅在以下三个参数都不足以表示 key 参数时使用
+    first_key_index：第一个 key 参数的位置
+    last_key_index：最后一个 key 参数的位置
+    key_step：从 first 参数和 last 参数之间，所有 key 的步数（step）。比如说， MSET 命令的格式为 MSET key value [key value ...] 它的 step 就为 2
+    microseconds：执行这个命令耗费的总微秒数
+    calls：命令被执行的总次
+ * */
 struct redisCommand {
     char *name;
     redisCommandProc *proc;

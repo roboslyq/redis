@@ -48,6 +48,11 @@
  *      ae_evport.c 	evport绑定
  *      ae_kqueue.c	    kqueue绑定
  *      ae_select.c	    select绑定
+ *
+ * 4、与其他通用型的事件循环库 (如 libevent) 不一样的是，Redis 的事件循环库不用考虑太多的用户侧因素.
+ *      不用考虑 ABI 兼容。因为 AE 本身就和 Redis 一起编译，所以无需像 libevent 一样考虑库的升级问题。
+ *      不支持 Windows 系统，只支持 unix like 的系统
+ *      指定了监听 fd 的个数的上限，默认支持 10000 个客户端连接。
  */
 #ifndef __AE_H__
 #define __AE_H__

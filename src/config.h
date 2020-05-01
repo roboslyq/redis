@@ -119,10 +119,12 @@
 /* Check if we can use setproctitle().
  * BSD systems have support for it, we provide an implementation for
  * Linux and osx. */
+//检测setproctitle()函数是否可用：修改进程名称
+// 由于BSD系统已经支持该功能，而Linux和APPLE不支持。所以redis对这个功能提供实现，即实现了对Linux和OSX的该功能的扩展
 #if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
 #define USE_SETPROCTITLE
 #endif
-
+// 如果是Linux和APPLE等系统，redis自己扩展实现
 #if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT

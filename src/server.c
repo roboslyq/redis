@@ -1107,6 +1107,7 @@ err:
 }
 
 /* Return the UNIX time in microseconds */
+/** 返回当前系统时间，单位：微秒 */
 long long ustime(void) {
     struct timeval tv;
     long long ust;
@@ -1746,9 +1747,9 @@ void databasesCron(void) {
  * such info only when calling this function from serverCron() but not when
  * calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
-    server.ustime = ustime();
-    server.mstime = server.ustime / 1000;
-    server.unixtime = server.mstime / 1000;
+    server.ustime = ustime();// 微秒
+    server.mstime = server.ustime / 1000;// 毫秒
+    server.unixtime = server.mstime / 1000; //秒
 
     /* To get information about daylight saving time, we need to call
      * localtime_r and cache the result. However calling localtime_r in this
@@ -2277,7 +2278,18 @@ void createSharedObjects(void) {
     shared.minstring = sdsnew("minstring");
     shared.maxstring = sdsnew("maxstring");
 }
-
+/**
+ * 初始化服务器的状态
+ * 初始化LRU时间
+ * 设置保存条件
+ * 初始化和复制相关的状态
+ * 初始化PSYNC命令使用的backlog（回溯）
+ * 设置客户端的输出缓冲区限制
+ * 初始化浮点常量
+ * 初始化命令表
+ * 初始化慢查询日志
+ * 初始化调试项。
+ */
 void initServerConfig(void) {
     int j;
 
@@ -2368,10 +2380,16 @@ void initServerConfig(void) {
     R_PosInf = 1.0/R_Zero;
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
-    //设立命令表
-    /* Command table -- we initiialize it here as it is part of the
+    /**
+     *初始化命令表，将命令集分布到一个hash table中。
+     * 避免使用if分支来做命令处理的效率底下问题，而放到hash table中，在理想的情况下只需一次就能定位命令的处理函数
+     */
+     /* Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
+     // 使用字典来存储命令（用户可以定制命令，因此需要两个Table来保存命令）
+    //     1、受到rename配置影响的命令表（server. ocommands）
+    //     2、未受rename配置影响的源命令表（server. orig_commands）
     server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
     populateCommandTable();
@@ -2748,7 +2766,10 @@ void initServer(void) {
     createSharedObjects();
     adjustOpenFilesLimit();
 
-    // ======>创建事件循环对象 (aeEventLoop), 在 ae.c 中实现
+    // ae循环事件库第1步======>创建事件循环对象 (aeEventLoop), 在 ae.c 中实现。(类似于NIO编程中的selector概念，后面需要将监听的fd添加到这个事件库里)
+    // 此处只是完成事件库创建，还没有完成fd注册。
+    // maxclients 代表用户配置的最大连接数，可在启动时由 --maxclients 指定，默认为 10000。
+    // CONFIG_FDSET_INCR 大小为 128。给 Redis 预留一些安全空间。
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2770,6 +2791,7 @@ void initServer(void) {
         exit(1);
 
     /* Open the listening Unix domain socket. */
+    // 打开 UNIX 本地端口
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -2864,6 +2886,7 @@ void initServer(void) {
      * domain sockets. */
     // 创建socket文件监控, 由 acceptTcpHandler 承载处理
     for (j = 0; j < server.ipfd_count; j++) {
+        // 为本地套接字关联应答处理器
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
             {
@@ -4850,7 +4873,10 @@ void loadDataFromDisk(void) {
         }
     }
 }
-
+/**
+ * OOM时 回调处理
+ * @param allocation_size
+ */
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
@@ -4937,7 +4963,7 @@ int iAmMaster(void) {
 }
 
 /**
- * ========》redis启动入口类
+ * ========》redis启动流程：
  *  1. Redis 会设置一些回调函数，当前时间，随机数的种子。回调函数实际上什么？举个例子，比如 Q/3 要给 Redis 发送一个关闭的命令，让它去做一些优雅的关闭，做一些扫尾清楚的工作，
  *    这个工作如果不设计回调函数，它其实什么都不会干。其实 C 语言的程序跑在操作系统之上，Linux 操作系统本身就是提供给我们事件机制的回调注册功能，所以它会设计这个回调函数，让你注册上，
  *    关闭的时候优雅的关闭，然后它在后面可以做一些业务逻辑。
@@ -4953,6 +4979,7 @@ int iAmMaster(void) {
  * @return
  */
 int main(int argc, char **argv) {
+    // 保存了当前日期
     struct timeval tv;
     int j;
 // 预定义处理：测试参数相关
@@ -4983,26 +5010,33 @@ int main(int argc, char **argv) {
 #endif
 
     /* We need to initialize our libraries, and the server configuration. */
-    /* 初始化库*/
+    /* 启动第1步：初始化库，其中INIT_SETPROCTITLE_REPLACEMENT的定义config.h中*/
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
-    // 设置些默认值, 随机数等等
+//    系统调用，用来配置本地化信息。
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
-    // oom 回调处理
-    zmalloc_set_oom_handler(redisOutOfMemoryHandler);
-    srand(time(NULL)^getpid());
-    gettimeofday(&tv,NULL);
 
+    //zmalloc 需要的一些配置
+    // zmalloc oom时 回调处理
+    zmalloc_set_oom_handler(redisOutOfMemoryHandler);
+    //设置随机种子
+    srand(time(NULL)^getpid());
+    //获取当前日期
+    gettimeofday(&tv,NULL);
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
+    //设置哈希函数需要使用的随机种子
     dictSetHashFunctionSeed(hashseed);
     // 检查服务器是否以 Sentinel 模式启动
     server.sentinel_mode = checkForSentinelMode(argc,argv);
-    // 使用内置的参数初始化服务器默认配置(即redis也可以不指定具体的redis.conf配置文件也可以启动，这些默认参数在这里进行初始化), 将变化体现到 server 变量上
+    /**
+     * 1、 使用内置的参数初始化服务器默认配置(即redis也可以不指定具体的redis.conf配置文件也可以启动，这些默认参数在这里进行初始化)
+     * 2、通过函数populateCommandTable()完成了命令表的初始化。
+     */
     initServerConfig();
-    //
+    //ACL权限控制
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
@@ -5169,8 +5203,9 @@ int main(int argc, char **argv) {
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
-    // 主循环服务, 只有收到 stop 命令后，才会退出
+    //=====> 创建eventloop: 主循环服务, 只有收到 stop 命令后，才会退出
     aeMain(server.el);
+    // 释放循环事件库eventLoop
     aeDeleteEventLoop(server.el);
     return 0;
 }

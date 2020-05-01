@@ -47,7 +47,25 @@
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 
-/** 选择不同的io模型, 优先级: evport > epoll > kqueue > select */
+/**
+ * 1、Redis 不仅支持 Linux 下的 epoll，还支持其他的 IO 复用方式，目前支持如下四种：
+ *      epoll：支持 Linux 系统
+ *      kqueue：支持 FreeBSD 系统 (如 macOS)
+ *      select
+ *      evport: 支持 Solaris
+ *
+ *   优先级: evport > epoll > kqueue > select
+ *   注：优先级顺序其实也代表了四种 IO 复用方式的性能高低
+ * 2、对于每种 IO 复用方式，只要实现以下 8 个接口就可以正常对接 Redis 了：
+ *      int aeApiCreate(aeEventLoop *eventLoop);
+ *      void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask);
+ *      void aeApiResize(aeEventLoop *eventLoop, int setsize);
+ *      void aeApiFree(aeEventLoop *eventLoop);
+ *      int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask);
+ *      void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask);
+ *      int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp);
+ *      char *aeApiName(void);
+ * */
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -64,6 +82,23 @@
 
 /**
  * 创建事件循环对象: setsize为最大事件的的个数，对于epoll来说也是epoll_event的个数
+ *
+ * eventLoop->events 数组特点：
+ *  1、 Linux 内核会给每个进程维护一个文件描述符表。而 POSIX 标准对于文件描述符进行了以下约束：
+ *      fd 为 0、1、2 分别表示标准输入、标准输出和错误输出，每次新打开的 fd，必须使用当前进程中最小可用的文件描述符。
+ *      Redis 充分利用了文件描述符的这些特点，来存储每个 fd 对应的事件。
+ *      在 Redis 的 eventloop 中，直接用了一个连续数组来存储事件信息:
+ *  2、在linux环境下，fd 就是这个数组的下标。
+    例如，当程序刚刚启动时候，创建监听套接字，按照标准规定，该 fd 的值为 3。此
+    时就直接在 eventLoop->events 下标为 3 的元素中存放相应 event 数据。
+    过也基于文件描述符的这些特点，意味着 events 数组的前三位一定不会有相应的 fd 赋值。
+    那么，Redis 是如何指定 eventloop 的 setsize 的呢？
+    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+
+    maxclients 代表用户配置的最大连接数，可在启动时由 --maxclients 指定，默认为 10000。
+    CONFIG_FDSET_INCR 大小为 128。给 Redis 预留一些安全空间。
+    也正是因为 Redis 利用了 fd 的这个特点，Redis 只能在完全符合 POSIX 标准的系统中工作。
+    其他的例如 Windows 系统，生成的 fd 或者说 HANDLE 更像是个指针，并不符合 POSIX 标准
  * @param setsize
  * @return
  */
@@ -71,6 +106,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
     //分配该结构体的内存空间
+
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
@@ -92,7 +128,13 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
+   /**linux 内核会给每个进程维护一个文件描述符表。而 POSIX 标准对于文件描述符进行了以下约束： fd 为 0、1、2 分别表示标准输入、标准输出和错误输出
+    每次新打开的 fd，必须使用当前进程中最小可用的文件描述符。
+    Redis 充分利用了文件描述符的这些特点，来存储每个 fd 对应的事件。
+    在 Redis 的 eventloop 中，直接用了一个连续数组来存储事件信息
+    */
     for (i = 0; i < setsize; i++)
+        //数组长度就是 setsize，同时创建之后将每一个 event 的 mask 属性置为 AE_NONE(即是 0)，mask 代表该 fd 注册了哪些事件。
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
 
@@ -162,8 +204,13 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 /**
- * 对于创建文件事件，需要传入一个该事件对应的处理程序，当事件发生时，会调用对应的回调函数。
- * 这里设计的aeFileEvent结构体就是将事件源（FD），事件，事件处理程序关联起来。
+ * 网络 IO 事件注册到eventLoop中：
+ * 1、对于创建文件事件，需要传入一个该事件对应的处理程序，当事件发生时，会调用对应的回调函数。
+ *  这里设计的aeFileEvent结构体就是将事件源（FD），事件，事件处理程序关联起来。
+ * 2、目前可注册的事件有三种:
+ *      AE_READABLE 可读事件
+ *      AE_WRITABLE 可写事件
+ *      AE_BARRIER
  * @param eventLoop
  * @param fd
  * @param mask
@@ -190,7 +237,12 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         eventLoop->maxfd = fd;
     return AE_OK;
 }
-
+/**
+ * 网络 IO 事件从eventLoop中删除：
+ * @param eventLoop
+ * @param fd
+ * @param mask
+ */
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     if (fd >= eventLoop->setsize) return;
@@ -393,11 +445,13 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  *
  * The function returns the number of events processed. */
+/** 事件处理*/
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+    /** 没有事件发生时,直接 返回0*/
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
@@ -539,7 +593,14 @@ int aeWait(int fd, int mask, long long milliseconds) {
         return retval;
     }
 }
-
+/**
+ * 监听事件主循环器
+ * 1、取出最近的一次超时事件。
+ * 2、计算该超时事件还有多久才可以触发。
+ * 3、等待网络事件触发或者超时(epoll_wait必须要指定一个超时时间。)。
+ * 4、处理触发的各个事件，包括网络事件和超时事件
+ * @param eventLoop
+ */
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {

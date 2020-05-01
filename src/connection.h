@@ -65,7 +65,9 @@ typedef struct ConnectionType {
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
 } ConnectionType;
-
+/**
+ * 客户端与服务端连接抽象，读写数据均由connection完成
+ */
 struct connection {
     ConnectionType *type;
     ConnectionState state;
