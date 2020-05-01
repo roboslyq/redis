@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.13)
 project(redis VERSION 5.0)
 set(CMAKE_BUILD_TYPE "Debug")
 
@@ -96,28 +96,32 @@ set(SRC_CLI
         src/siphash.c
         )
 
-
 set(EXECUTABLE_OUTPUT_PATH src)
-link_directories(deps/linenoise/ deps/lua/src deps/hiredis)
+link_directories(deps/linenoise/ deps/lua/src deps/hiredis  deps/jemalloc)
 
 add_executable(redis-server ${SRC_SERVER})
 target_include_directories(redis-server
         PRIVATE ${REDIS_ROOT}/deps/linenoise
         PRIVATE ${REDIS_ROOT}/deps/hiredis
-        PRIVATE ${REDIS_ROOT}/deps/lua/src)
+        PRIVATE ${REDIS_ROOT}/deps/lua/src
+        PRIVATE ${REDIS_ROOT}/deps/lua/jemalloc
+        )
+
 target_link_libraries(redis-server
         PRIVATE pthread
         PRIVATE m
         PRIVATE lua
         PRIVATE linenoise
-        PRIVATE hiredis)
-
+        PRIVATE hiredis
+        )
 
 add_executable(redis-cli ${SRC_CLI})
 target_include_directories(redis-cli
         PRIVATE ${REDIS_ROOT}/deps/linenoise
         PRIVATE ${REDIS_ROOT}/deps/hiredis
-        PRIVATE ${REDIS_ROOT}/deps/lua/src)
+        PRIVATE ${REDIS_ROOT}/deps/lua/src
+        PRIVATE ${REDIS_ROOT}/deps/lua/jemalloc
+        )
 
 target_link_libraries(redis-cli
         PRIVATE pthread
