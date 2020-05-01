@@ -73,7 +73,7 @@ ConnectionType CT_Socket;
  * 3. The container_of() approach is anyway risky because connections may
  * be embedded in different structs, not just client.
  */
-
+/** 创建socket Connection */
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
@@ -88,7 +88,9 @@ connection *connCreateSocket() {
  * The socket is not read for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
  */
+/** 将socket套拼字包装为conection */
 connection *connCreateAcceptedSocket(int fd) {
+    // =========>很关键的方法：创建socket connection,设置了对应的Type为CT_Socket
     connection *conn = connCreateSocket();
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
@@ -130,6 +132,7 @@ void connSetPrivateData(connection *conn, void *data) {
 }
 
 /* Get the associated private data pointer */
+
 void *connGetPrivateData(connection *conn) {
     return conn->private_data;
 }
@@ -222,13 +225,23 @@ static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc fu
 /* Register a read handler, to be called when the connection is readable.
  * If NULL, the existing handler is removed.
  */
+// 设置readerHandler
 static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     if (func == conn->read_handler) return C_OK;
 
     conn->read_handler = func;
     if (!conn->read_handler)
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
-    else
+    else //默认进入此分支，创建一个I/O事件，并设置事件处理器
+    /* 调用栈如下：
+     * connSocketSetReadHandler connection.c:236
+        connSetReadHandler connection.h:164
+            createClient networking.c:100
+                acceptCommonHandler networking.c:889
+                    acceptTcpHandler networking.c:947
+                        aeProcessEvents ae.c:570
+                            aeMain ae.c:641
+     */
         if (aeCreateFileEvent(server.el,conn->fd,
                     AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
     return C_OK;
@@ -243,7 +256,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     UNUSED(el);
     UNUSED(fd);
     connection *conn = clientData;
-
+    /** 根据connection状态，来做不同的处理，比如是可读，可写或者其它*/
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
@@ -278,6 +291,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 
     /* Handle normal I/O flows */
     if (!invert && call_read) {
+        // -=====>处理I/O
         if (!callHandler(conn, conn->read_handler)) return;
     }
     /* Fire the writable event. */
@@ -325,7 +339,9 @@ static ssize_t connSocketSyncReadLine(connection *conn, char *ptr, ssize_t size,
     return syncReadLine(conn->fd, ptr, size, timeout);
 }
 
-
+/**
+ * 这里定义了Socket Connection相关的事件处理函数
+ */
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .close = connSocketClose,

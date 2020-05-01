@@ -2498,6 +2498,7 @@ int restartServer(int flags, mstime_t delay) {
  * If it will not be possible to set the limit accordingly to the configured
  * max number of clients, the function will do the reverse setting
  * server.maxclients to the value that we can actually handle. */
+/** 最大打开文件句柄数控制 */
 void adjustOpenFilesLimit(void) {
     rlim_t maxfiles = server.maxclients+CONFIG_MIN_RESERVED_FDS;
     struct rlimit limit;
@@ -2729,7 +2730,7 @@ void initServer(void) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
-
+    // 如果启用系统日志
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
@@ -2764,6 +2765,7 @@ void initServer(void) {
     // 全局共享对象, 比如 OK, 1-10000, ...
     // 性能优化, 避免对相同的对象反复创建
     createSharedObjects();
+    // 最大允许打开文件句柄数控制
     adjustOpenFilesLimit();
 
     // ae循环事件库第1步======>创建事件循环对象 (aeEventLoop), 在 ae.c 中实现。(类似于NIO编程中的selector概念，后面需要将监听的fd添加到这个事件库里)
@@ -2782,7 +2784,7 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
-    //  ======>打开服务端口监听
+    //  ======>打开服务端口监听(包括IPV6和IPV4) server.port = 6379
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
@@ -2791,7 +2793,7 @@ void initServer(void) {
         exit(1);
 
     /* Open the listening Unix domain socket. */
-    // 打开 UNIX 本地端口
+    // 打开 UNIX 本地端口（windows下调试时为空）
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -2823,7 +2825,7 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
-    evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    evictionPoolAlloc(); /* Initialize the LRU keys pool. LRU初始化*/
     // pub/sub 参数初始化
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -2884,10 +2886,11 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    // 创建socket文件监控, 由 acceptTcpHandler 承载处理
+    // 创建socket文件监控, 由 acceptTcpHandler 承载处理。服务端启动时server.ipfd_count = 2 ,分别是ipv4和ipv6监听。
     for (j = 0; j < server.ipfd_count; j++) {
-        // 为本地套接字关联应答处理器
+        // 为本地套接字关联应答处理器《将server.socket注册到事件监听器上》
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
+            // acceptTcpHandler：定义了accept请求时对应的处理器。
             acceptTcpHandler,NULL) == AE_ERR)
             {
                 serverPanic(
@@ -2902,12 +2905,14 @@ void initServer(void) {
                     "Unrecoverable error creating server.tlsfd file event.");
             }
     }
+    // 在windows下，server.sofd = -1
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
+    /** 将fd注册到eventloop中 server.module_blocked_pipe[0] = 3 server.module_blocked_pipe[1]=4*/
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
         moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
             serverPanic(
@@ -2916,7 +2921,7 @@ void initServer(void) {
     }
 
     /* Open the AOF file if needed. */
-    // 如果开启了AOF功能，就打开AOF文件
+    // 如果开启了AOF功能，就打开AOF文件（默认关闭）
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -2936,12 +2941,13 @@ void initServer(void) {
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
-
+    // cluster集群初始化
     if (server.cluster_enabled) clusterInit();
+    // 主从复杂初始化
     replicationScriptCacheInit();
     // lua 脚本初始化
     scriptingInit(1);
-    //     初始化慢查询日志变量
+    // 初始化"慢操作"日志变量
     slowlogInit();
     // 延迟监控初始化，仅创建变量
     latencyMonitorInit();
@@ -3269,7 +3275,7 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
-    c->cmd->proc(c);
+    c->cmd->proc(c); //调用命令对应的处理器处理命令,例如t_string->setCommand等
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
@@ -3291,6 +3297,7 @@ void call(client *c, int flags) {
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
+    /** 记录慢的日志，如果命令执行时间过长，会记录*/
     if (flags & CMD_CALL_SLOWLOG && !(c->cmd->flags & CMD_SKIP_SLOWLOG)) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
@@ -3974,6 +3981,7 @@ void bytesToHuman(char *s, unsigned long long n) {
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
+/** INFO 命令返回的字符串构建*/
 sds genRedisInfoString(const char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
@@ -4581,7 +4589,7 @@ void infoCommand(client *c) {
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
 }
-
+/** monitor命令返回：正常返回OK*/
 void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
@@ -5151,8 +5159,10 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
-    // =======>初始化服务器
-    // 重点如: 绑定监听端口号，设置 acceptTcpHandler 回调函数
+    /**
+     * =======>初始化服务器
+     * 重点如: 绑定监听端口号，设置 acceptTcpHandler 回调函数
+     */
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);

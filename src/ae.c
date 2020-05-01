@@ -65,6 +65,29 @@
  *      void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask);
  *      int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp);
  *      char *aeApiName(void);
+ *
+ * 3、虽然每个c文件对应的poll机制不同，但都定义了自己的aeApiState以及实现的都是相同的api:
+*        aeApiState,
+*        　　每种poll机制内部使用的相关结构体，例如：select用到的fdset, epoll用到的epoll_fd以及events数组
+*        aeApiCreate,
+*            poll机制的初始化，每个poll机制都会在这里分配一个新的aeApiState结构，并做一些特定的初始化操作
+*            例如：对于select来说应该是就是初始化fdset，用于select的相关调用；对于epoll来说，需要创建epoll的fd以及epoll使用的events数组
+*        aeApiResize,
+*            调整poll机制中能处理的事件数目，例如：对于select来说，其实只要不超过fdset的最大值(一般系统默认是1024)它就什么都不做，否则返回错误；对于epoll来说，就是重新分配events数组
+*            这个函数只在config阶段会被调用
+*        aeApiFree,
+*          对于select来说，主要就是释放aeApiState的空间
+*        　对于epoll来说，主要就是关闭epoll的fd, 释放aeApiState以及events的空间
+*        aeApiAddEvent,
+*            对于select来说，就是往某个fd_set里面增加fd
+*            对于epoll来说，就是在events中增加/修改感兴趣的事件
+*        aeApiDelEvent,
+*            对于select来说，就是从某个fd_set里面删除fd
+*            对于epoll来说，就是在events中删除/修改感兴趣的事件
+*        aeApiPoll,
+*        　主要的poll入口，比如select或者epoll_wait
+*        aeApiName
+*        　返回poll机制的名字，比如select或者epoll*
  * */
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
@@ -106,12 +129,12 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
     //分配该结构体的内存空间
-
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
+    //给监听fd分配空间，空间大小为setsize
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
+    //给事件就绪fd分配空间，空间大小为setsize
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
-
     //初始化
     eventLoop->setsize = setsize; //最多setsize个事件
     eventLoop->lastTime = time(NULL);
@@ -122,9 +145,11 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
+    // poll初始化：
     // 根据系统不同，选择不同的实现，C里面的多态自然是用 #ifdef 来实现了
     // 具体实现有如下四种：ae_kqueue.c  ae_epoll.c ae_avport.c  ae_select.c
-    //这一步为创建底层IO处理的数据，如epoll，创建epoll_event,和epfd
+    // 这一步为创建底层IO处理的数据，如epoll，创建epoll_event,和epfd。
+
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -211,11 +236,14 @@ void aeStop(aeEventLoop *eventLoop) {
  *      AE_READABLE 可读事件
  *      AE_WRITABLE 可写事件
  *      AE_BARRIER
- * @param eventLoop
- * @param fd
- * @param mask
- * @param proc
- * @param clientData
+ *
+ * @param eventLoop  事件循环监听器，功能类似NIO编程中是selector
+ * @param fd          socket文件描述符
+ * @param mask        掩码
+ * @param proc        事件处理器：
+ *                     ACCEPT 对应 networking->acceptTcpHandler
+ *
+ * @param clientData   客户端传过来的数据，默认为空
  * @return
  */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
@@ -225,15 +253,15 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
-    aeFileEvent *fe = &eventLoop->events[fd];
+    aeFileEvent *fe = &eventLoop->events[fd];// 获取events中的对应fd位置了aeFileEvent（因为linux的fd生成规则，所以直接使用fd作为数据下标）
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
-    fe->mask |= mask;
-    if (mask & AE_READABLE) fe->rfileProc = proc;
-    if (mask & AE_WRITABLE) fe->wfileProc = proc;
+    fe->mask |= mask;// 更新fe中的事件标识符
+    if (mask & AE_READABLE) fe->rfileProc = proc; // 添加读事件处理器
+    if (mask & AE_WRITABLE) fe->wfileProc = proc; //添加写事件处理器
     fe->clientData = clientData;
-    if (fd > eventLoop->maxfd)
+    if (fd > eventLoop->maxfd)//更新eventLoop中最在fd。因为linux规则，与epoll实现函数中的fd句柄类似
         eventLoop->maxfd = fd;
     return AE_OK;
 }
@@ -505,12 +533,13 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+        /** 多路利用监听：阻塞直到有数据返回或者超时。windowns默认使用select实现 */
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
-
+        /** 当有事件来时，进行事件处理，包括 ACCEPT，READ,WRITE等事件*/
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
@@ -536,13 +565,15 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              *
              * Fire the readable event if the call sequence is not
              * inverted. */
+            /** 读事件处理 */
             if (!invert && fe->mask & mask & AE_READABLE) {
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop,fd,fe->clientData,mask);//读事件处理器
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
             }
 
             /* Fire the writable event. */
+            /** 写事件处理 */
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
@@ -552,6 +583,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* If we have to invert the call, fire the readable event now
              * after the writable one. */
+            /** 事件转换：当我们读完事件后，要转换为监听写事件。或者写完要转换为读监听 */
             if (invert) {
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
                 if ((fe->mask & mask & AE_READABLE) &&
@@ -561,7 +593,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                     fired++;
                 }
             }
-
+            //事件处理数加+
             processed++;
         }
     }

@@ -450,7 +450,7 @@ int anetWrite(int fd, char *buf, int count)
     }
     return totlen;
 }
-
+/** 服务端启动监听*/
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
@@ -475,7 +475,7 @@ static int anetV6Only(char *err, int s) {
     }
     return ANET_OK;
 }
-
+/** 绑定端口*/
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;
@@ -513,12 +513,12 @@ end:
     freeaddrinfo(servinfo);
     return s;
 }
-
+/** 绑定IPV4*/
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
 {
     return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
 }
-
+/** 绑定IPV6*/
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 {
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
@@ -542,7 +542,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 /**
- * 处理客户端连接
+ * 处理客户端accept事件
  * @param err
  * @param s
  * @param sa
@@ -593,7 +593,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 /**
- * 处理客户端连接
+ * 处理客户端accept请求
  * @param err
  * @param s
  * @param ip
@@ -605,14 +605,15 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
+    // fd为文件描述符
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
         return ANET_ERR;
-
+    //IPv4类型的TCP
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
         if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin_port);
-    } else {
+    } else {//IPV6类型的TCP
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin6_port);

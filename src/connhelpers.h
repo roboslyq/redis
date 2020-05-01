@@ -76,7 +76,7 @@ static inline int connHasRefs(connection *conn) {
  */
 static inline int callHandler(connection *conn, ConnectionCallbackFunc handler) {
     connIncrRefs(conn);
-    if (handler) handler(conn);
+    if (handler) handler(conn);//====>处理命令networking->readQueryFromClient
     connDecrRefs(conn);
     if (conn->flags & CONN_FLAG_CLOSE_SCHEDULED) {
         if (!connHasRefs(conn)) connClose(conn);

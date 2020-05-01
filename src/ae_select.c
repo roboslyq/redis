@@ -31,14 +31,20 @@
 
 #include <sys/select.h>
 #include <string.h>
-
+/**
+ * select模式实现
+ */
 typedef struct aeApiState {
     fd_set rfds, wfds;
     /* We need to have a copy of the fd sets as it's not safe to reuse
      * FD sets after select(). */
     fd_set _rfds, _wfds;
 } aeApiState;
-
+/**
+ * select模式实现
+ * @param eventLoop
+ * @return
+ */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -62,8 +68,8 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
 
-    if (mask & AE_READABLE) FD_SET(fd,&state->rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd,&state->wfds);
+    if (mask & AE_READABLE) FD_SET(fd,&state->rfds);//添加读事件监听器
+    if (mask & AE_WRITABLE) FD_SET(fd,&state->wfds);//添加写事件监听器
     return 0;
 }
 //删除指定事件的监听
@@ -80,19 +86,21 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
-    /** select函数调用*/
+    /** select函数调用 ，返回事件数量*/
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
+        // 如果有事件，循环遍列事件
         for (j = 0; j <= eventLoop->maxfd; j++) {
             int mask = 0;
             aeFileEvent *fe = &eventLoop->events[j];
-
+            // 判断对应的fd是否有需要处理的事件
             if (fe->mask == AE_NONE) continue;
             if (fe->mask & AE_READABLE && FD_ISSET(j,&state->_rfds))
                 mask |= AE_READABLE;
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
+            //将对应的fd放到已触发事件数组中
             eventLoop->fired[numevents].fd = j;
             eventLoop->fired[numevents].mask = mask;
             numevents++;

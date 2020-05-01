@@ -357,7 +357,7 @@ void *sdsAllocPtr(sds s) {
  * sdsIncrLen(s, nread);
  */
 void sdsIncrLen(sds s, ssize_t incr) {
-    unsigned char flags = s[-1];
+    unsigned char flags = s[-1];// "*3\r\n$3\r\nset\r\n$1\r\na\r\n$1\r\nb\r\n\001"
     size_t len;
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5: {

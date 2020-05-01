@@ -90,7 +90,12 @@ struct aeEventLoop;
 
 //为方便使用定义的函数指针别名
 /* Types and data structures */
-//定义文件事件处理接口（函数指针）
+/**
+ * 定义文件事件处理接口（函数指针）,在c语言中，回调是通过函数指针实现的。
+ * 通过将回调函数地址传递给被调函数，从而实现回调。
+ * 在这里，通过定义函数指针aeFileProc，由调用方实现具体的函数内容，在实际调用函数里，把aeFileProc实现函数的地址传进来。
+ * 其实相当于定义一种接口，由调用方来实现该接口
+ */
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 //时间事件处理接口（函数指针），该函数返回定时的时长
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
@@ -99,7 +104,7 @@ typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientDat
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
-/** 定义一个文件事件结构，本质是一个数组*/
+/** 定义一个I/O事件结构，本质是一个数组*/
 typedef struct aeFileEvent {
     //文件事件结构体
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER)  */

@@ -84,7 +84,7 @@ void linkClient(client *c) {
     uint64_t id = htonu64(c->id);
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
-
+/** 客户端创建，很关键，设置了相关的事件处理handler */
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -97,10 +97,13 @@ client *createClient(connection *conn) {
         connEnableTcpNoDelay(conn);
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
+        /**
+         * =======>核心方法：创建了一个对应的FileEvent，并且设置了事件处理器
+         */
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
-
+    //默认设置客户端的数据库为第0个
     selectDb(c,0);
     uint64_t client_id = ++server.next_client_id;
     c->id = client_id;
@@ -855,7 +858,7 @@ void clientAcceptHandler(connection *conn) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 /**
- * accept 事件通用Handler
+ * accept事件通用Handler:
  * @param conn
  * @param flags
  * @param ip
@@ -868,6 +871,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * called, because we don't want to even start transport-level negotiation
      * if rejected.
      */
+    //客户端连接数过多处理
     if (listLength(server.clients) >= server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -884,6 +888,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 
     /* Create connection and client */
+    /** 创建客户端client */
     if ((c = createClient(conn)) == NULL) {
         char conninfo[100];
         serverLog(LL_WARNING,
@@ -930,7 +935,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
     //最大连接数量
     while(max--) {
-        // cfd是套接字描述符
+        // cfd是套接socket字描述符
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -939,6 +944,9 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        /**
+         * 给新生成的套接字设置对应的事件处理Handler
+         */
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
 }
@@ -1696,7 +1704,7 @@ int processMultibulkBuffer(client *c) {
 int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     server.current_client = c;
-    if (processCommand(c) == C_OK) {
+    if (processCommand(c) == C_OK) {// 处理命令
         if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
             /* Update the applied replication offset of our master. */
             c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
@@ -1791,6 +1799,7 @@ void processInputBuffer(client *c) {
             }
 
             /* We are finally ready to execute the command. */
+            /** 处理命令 */
             if (processCommandAndResetClient(c) == C_ERR) {
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
@@ -1813,7 +1822,7 @@ void processInputBuffer(client *c) {
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
     if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c);
+        processInputBuffer(c); // 处理命令
     } else {
         /* If the client is a master we need to compute the difference
          * between the applied offset before and after processing the buffer,
@@ -1831,7 +1840,7 @@ void processInputBufferAndReplicate(client *c) {
         }
     }
 }
-
+/** 从客户端读取指令*/
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, readlen;
@@ -1899,7 +1908,7 @@ void readQueryFromClient(connection *conn) {
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
-     processInputBufferAndReplicate(c);
+     processInputBufferAndReplicate(c); //====>处理命令
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -3041,7 +3050,7 @@ int postponeClientRead(client *c) {
         c->flags |= CLIENT_PENDING_READ;
         listAddNodeHead(server.clients_pending_read,c);
         return 1;
-    } else {
+    } else {// 普通set a b 命令会进入这里 TODO
         return 0;
     }
 }

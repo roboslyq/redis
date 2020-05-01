@@ -782,7 +782,8 @@ typedef struct client {
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
-    sds querybuf;           /* Buffer we use to accumulate client queries. */
+    sds querybuf;           /* Buffer we use to accumulate client queries. 保存了客户端发送过来的数据，例如一个"set a b "命令，则对应
+                             * "*3\r\n$3\r\nset\r\n$1\r\na\r\n$1\r\nb\r\n\001"*/
     size_t qb_pos;          /* The position we have read in querybuf. */
     sds pending_querybuf;   /* If this client is flagged as master, this buffer
                                represents the yet not applied portion of the
@@ -1081,7 +1082,7 @@ struct redisServer {
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
-    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
+    int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors 对应的socket文件描述符，服务端启动的时候有两个:IPV4和IPV6监听socket */
     int ipfd_count;             /* Used slots in ipfd[] */
     int tlsfd[CONFIG_BINDADDR_MAX]; /* TLS socket file descriptors */
     int tlsfd_count;            /* Used slots in tlsfd[] */

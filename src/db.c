@@ -176,6 +176,7 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
+/** 添加k-v到db中*/
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);

@@ -132,6 +132,7 @@ static int dictExpand(dict *ht, unsigned long size) {
 }
 
 /* Add an element to the target hash table */
+/** 添加数据到dict中*/
 static int dictAdd(dict *ht, void *key, void *val) {
     int index;
     dictEntry *entry;
