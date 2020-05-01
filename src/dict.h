@@ -91,7 +91,7 @@ typedef struct dict {
     dictType *type; // 类型特定函数: type里面主要记录了一系列的函数,可以说是规定了一系列的接口
     // 私有数据
     void *privdata;// privdata保存了需要传递给那些类型特定函数的可选参数
-    //两张哈希表
+    //两张哈希表【具体保存Redis数据】
     dictht ht[2];   //便于渐进式rehash
     //rehash 索引，并没有rehash时，值为 -1
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */

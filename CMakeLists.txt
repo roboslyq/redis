@@ -76,8 +76,16 @@ set(SRC_SERVER_TMP
         src/t_stream.c
         src/lolwut.c
         src/lolwut5.c
+        src/lolwut6.c
         src/listpack.c
         src/localtime.c
+        src/timeout.c
+        src/connection.c
+        src/acl.c
+        src/tls.c
+        src/tracking.c
+        src/sha256.c
+        src/gopher.c
         )
 set(SRC_SERVER src/server.c ${SRC_SERVER_TMP})
 
