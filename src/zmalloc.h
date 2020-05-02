@@ -1,5 +1,7 @@
 /* zmalloc - total amount of allocated memory aware version of malloc()
- *
+ * malloc()本身能够保证所分配的内存是8字节对齐的：如果你要分配的内存不是8的倍数，那么malloc就会多分配一点，来凑成8的倍数。
+ * 所以update_zmalloc_stat_alloc函数（或者说zmalloc()相对malloc()而言）真正要实现的功能并不是进行8字节对齐（malloc已经保证了），
+ * 它的真正目的是使变量used_memory精确的维护实际已分配内存的大小。
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
