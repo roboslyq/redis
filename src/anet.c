@@ -452,12 +452,13 @@ int anetWrite(int fd, char *buf, int count)
 }
 /** 服务端启动监听*/
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
+    /** 绑定 bind*/
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
         close(s);
         return ANET_ERR;
     }
-
+    /** 监听 listen*/
     if (listen(s, backlog) == -1) {
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);
@@ -593,7 +594,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 /**
- * 处理客户端accept请求
+ * 处理客户端accept请求，创建socket通道
  * @param err
  * @param s
  * @param ip
@@ -605,7 +606,7 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    // fd为文件描述符
+    // fd为文件描述符(创建服务端与客户端间的socket通道fd,即文件描述符)
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
         return ANET_ERR;
     //IPv4类型的TCP

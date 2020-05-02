@@ -76,6 +76,7 @@ ConnectionType CT_Socket;
 /** 创建socket Connection */
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
+    /** 核心配置，配置了所有的连接相关的性质，主要是各种事件的回调函数*/
     conn->type = &CT_Socket;
     conn->fd = -1;
 
@@ -90,7 +91,7 @@ connection *connCreateSocket() {
  */
 /** 将socket套拼字包装为conection */
 connection *connCreateAcceptedSocket(int fd) {
-    // =========>很关键的方法：创建socket connection,设置了对应的Type为CT_Socket
+    /** =========>很关键的方法：创建socket connection,设置了对应的Type为CT_Socket */
     connection *conn = connCreateSocket();
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
@@ -172,7 +173,7 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
 
     return ret;
 }
-
+/** 从已经连接的客户端读出数据*/
 static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     int ret = read(conn->fd, buf, buf_len);
     if (!ret) {
@@ -184,7 +185,12 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
 
     return ret;
 }
-
+/**
+ * ACCEPT处理回调函数
+ * @param conn
+ * @param accept_handler
+ * @return
+ */
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     int ret = C_OK;
 
@@ -250,7 +256,13 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
 static const char *connSocketGetLastError(connection *conn) {
     return strerror(conn->last_errno);
 }
-
+/**
+ * 处理客户端发送指令相关事件入口
+ * @param el
+ * @param fd
+ * @param clientData
+ * @param mask
+ */
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
     UNUSED(el);
@@ -268,7 +280,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
         }
 
         if (!conn->write_handler) aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
-
+        /** 核心方法，处理客户端指令 */
         if (!callHandler(conn, conn->conn_handler)) return;
         conn->conn_handler = NULL;
     }
@@ -287,7 +299,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     int invert = conn->flags & CONN_FLAG_WRITE_BARRIER;
 
     int call_write = (mask & AE_WRITABLE) && conn->write_handler;
-    int call_read = (mask & AE_READABLE) && conn->read_handler;
+    int call_read = (mask & AE_READABLE) && conn->read_handler;//客户发起命令时，call_read为true
 
     /* Handle normal I/O flows */
     if (!invert && call_read) {

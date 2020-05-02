@@ -1840,7 +1840,7 @@ void checkChildrenDone(void) {
  * a macro is used: run_with_period(milliseconds) { .... }
  * 1、 Redis 将 serverCron 作为时间事件来运行， 从而确保它每隔一段时间就会自动运行一次，
  * 2、serverCron 需要在 Redis 服务器运行期间一直定期运行， 所以它是一个循环时间事件：  s
- *      erverCron 会一直定期执行，直到服务器关闭为止
+ * serverCron 会一直定期执行，直到服务器关闭为止
  *
  */
 /**
@@ -2914,9 +2914,12 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    // 创建socket文件监控, 由 acceptTcpHandler 承载处理。服务端启动时server.ipfd_count = 2 ,分别是ipv4和ipv6监听。
+    /**
+     *  创建socket文件监控, 由 acceptTcpHandler 承载处理。服务端启动时server.ipfd_count = 2 ,分别是ipv4和ipv6监听。
+     *  这是服务端的监听fileEvent
+     */
     for (j = 0; j < server.ipfd_count; j++) {
-        // 为本地套接字关联应答处理器《将server.socket注册到事件监听器上》
+        // 为本地套接字关联应答处理器：将server.socket注册到事件监听器上
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             // acceptTcpHandler：定义了accept请求时对应的处理器。
             acceptTcpHandler,NULL) == AE_ERR)
@@ -3276,6 +3279,7 @@ void preventCommandReplication(client *c) {
  * preventCommandReplication(client *c);
  *
  */
+/** 调用具体处理指令，比如t_string.c ->setCommand  */
 void call(client *c, int flags) {
     long long dirty;
     ustime_t start, duration;
@@ -3303,7 +3307,8 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
-    c->cmd->proc(c); //调用命令对应的处理器处理命令,例如t_string->setCommand等
+    /** 调用命令对应的处理器处理命令,例如t_string->setCommand等 */
+    c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
@@ -3342,6 +3347,7 @@ void call(client *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
+    /** 如果开启了AOF,则将指令记录到AOF中 (RDB是满足条件定时触发，因此在指令执行之后没有相关操作)*/
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
@@ -3460,7 +3466,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr); //从指令表中获取具体的指令
     if (!c->cmd) {
         flagTransaction(c);
         sds args = sdsempty();
@@ -3481,6 +3487,7 @@ int processCommand(client *c) {
 
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
+    //权限检查
     int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
                           (DefaultUser->flags & USER_FLAG_DISABLED)) &&
                         !c->authenticated;
@@ -3496,6 +3503,7 @@ int processCommand(client *c) {
 
     /* Check if the user can run this command according to the current
      * ACLs. */
+    // ACL检查
     int acl_keypos;
     int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
     if (acl_retval != ACL_OK) {
@@ -3686,6 +3694,7 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
+        /** 调用具体处理指令，比如t_string.c ->setCommand  */
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))

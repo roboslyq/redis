@@ -935,7 +935,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
     //最大连接数量
     while(max--) {
-        // cfd是套接socket字描述符
+        // cfd是套接socket字描述符: 即创建了服务端与客户端socket通道
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -945,7 +945,8 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
         /**
-         * 给新生成的套接字设置对应的事件处理Handler
+         * 1、给新生成的服务端与客户端套接字fd(即java编程中的socket)设置对应的事件处理Handler
+         * 2、函数onnCreateAcceptedSocket(cfd)很关键，指定了connectionType为TC_socket,从而指定事件的处理器
          */
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
@@ -1704,7 +1705,8 @@ int processMultibulkBuffer(client *c) {
 int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     server.current_client = c;
-    if (processCommand(c) == C_OK) {// 处理命令
+    /** 处理指令 */
+    if (processCommand(c) == C_OK) {
         if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
             /* Update the applied replication offset of our master. */
             c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
@@ -1822,7 +1824,8 @@ void processInputBuffer(client *c) {
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
     if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c); // 处理命令
+        /** 处理命令 */
+        processInputBuffer(c);
     } else {
         /* If the client is a master we need to compute the difference
          * between the applied offset before and after processing the buffer,
@@ -1843,6 +1846,8 @@ void processInputBufferAndReplicate(client *c) {
 /** 从客户端读取指令*/
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
+    // nread:客户端发送过来的字节长度，例如"set a b"命令nread =27,因为redis协议编码后为：
+    // "* 3  \r  \n  $ 3 \r \n set \r \n $ 1 \r \n a \r \n $ 1 \r \n b \r \n"
     int nread, readlen;
     size_t qblen;
 
@@ -1908,7 +1913,8 @@ void readQueryFromClient(connection *conn) {
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
-     processInputBufferAndReplicate(c); //====>处理命令
+    //====>处理命令
+     processInputBufferAndReplicate(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,

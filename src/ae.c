@@ -253,7 +253,10 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
-    aeFileEvent *fe = &eventLoop->events[fd];// 获取events中的对应fd位置了aeFileEvent（因为linux的fd生成规则，所以直接使用fd作为数据下标）
+    // 获取events中的对应fd位置了aeFileEvent（因为linux的fd生成规则，所以直接使用fd作为数据下标）
+    // 服务端启动时，即相当于ServerSocket，监听使用，有两个:IPv4和IPV6
+    // 当有客户端连接进来时，就是一个普通的Socket
+    aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -529,7 +532,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  *
  * The function returns the number of events processed. */
-/** 时间事件是与文件事件由同一个事件分派器来调度的，如果有时间事件存在的话，文件事件的阻塞时间将由最近的时间事件与当前时间的差来决定：*/
+/**
+ * 1、时间事件是与文件事件由同一个事件分派器来调度的，如果有时间事件存在的话，
+ *   文件事件的阻塞时间将由最近的时间事件与当前时间的差来决定：
+ * 2、
+ * */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -542,16 +549,20 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+    /**
+     * 请注意，我们希望调用select()，即使没有要处理的文件事件(IO事件)，因为我们希望处理时间事件
+     * 使用线程sleep()直到下一次事件触发。
+     * */
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
-        // 获取最近的时间事件
-        if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
+        if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT)) {
+            // 获取最近的时间事件
             shortest = aeSearchNearestTimer(eventLoop);
-        if (shortest) {
-            // 如果时间事件存在的话
+        }
+        if (shortest) { // 如果时间事件存在的话
             // 那么根据最近可执行时间事件和现在时间的时间差来决定文件事件的阻塞时间
             long now_sec, now_ms;
             // 计算距今最近的时间事件还要多久才能达到
@@ -572,7 +583,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
             }
-        } else {
+        } else {//时间事件不存在
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to set the timeout
              * to zero */
@@ -628,6 +639,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * inverted. */
             /** 读事件处理 */
             if (!invert && fe->mask & mask & AE_READABLE) {
+                /**
+                 * 具体的事件与事件处理器映射关系在connection.c ->ConnectionType CT_Socket 已经定义好了。
+                 * 第1次：客户端发起ACCEPT连接，rfileProc = networkding.c -> acceptTcpHandler
+                 * 第2次：客户端连接时，会默认发起一次连接事件，但没有具体指令执行。rfileProc = connection.c -> connSocketEventHandler
+                 * 第3次: 客户端发起命令,比如“set a b”,rfileProc = connection.c -> connSocketEventHandler
+                 */
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);//读事件处理器
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
@@ -659,7 +676,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
-    // 执行时间事件
+    // 检查是否有需要执行的时间事件
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
