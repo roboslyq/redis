@@ -121,13 +121,15 @@ typedef struct aeFileEvent {
 typedef struct aeTimeEvent {
     //时间事件标识符，用于唯一标识该时间事件，并且用于删除时间事件
     long long id; /* time event identifier. */
-    long when_sec; /* seconds */
+    long when_sec; /* seconds  事件的到达时间，存贮的是UNIX的时间戳 */
     long when_ms; /* milliseconds */
     //该事件对应的处理程序
     aeTimeProc *timeProc;
     //时间事件的最后一次处理程序，若已设置，则删除时间事件时会被调用
     aeEventFinalizerProc *finalizerProc;
+    // 多路复用库的私有数据
     void *clientData;
+    // 指向下个时间事件结构，形成双向链表
     struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
 } aeTimeEvent;

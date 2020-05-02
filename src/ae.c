@@ -299,7 +299,10 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 
     return fe->mask;
 }
-
+/**
+ * 取出当前时间的秒和毫秒，
+ * 并分别将它们保存到 seconds 和 milliseconds 参数中
+ */
 static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;
@@ -308,35 +311,63 @@ static void aeGetTime(long *seconds, long *milliseconds)
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
 }
-
+/**
+ * 在当前时间上加上 milliseconds 毫秒，
+ * 并且将加上之后的秒数和毫秒数分别保存在 sec 和 ms 指针中。
+ */
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
-
+    // 获取当前时间
     aeGetTime(&cur_sec, &cur_ms);
+    // 计算增加 milliseconds 之后的秒数和毫秒数
     when_sec = cur_sec + milliseconds/1000;
     when_ms = cur_ms + milliseconds%1000;
+    // 进位：
+    // 如果 when_ms 大于等于 1000
+    // 那么将 when_sec 增大一秒
     if (when_ms >= 1000) {
         when_sec ++;
         when_ms -= 1000;
     }
+    // 保存到指针中
     *sec = when_sec;
     *ms = when_ms;
 }
-
+/**
+ * 创建新的时间事件
+ * 1、与时间事件相关的定义有：
+ *      typedef struct aeTimeEvent
+ *      aeGetTime(long *seconds, long *milliseconds)
+ *      aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms)
+ * server.c ->initServer()方法中调用，在系统启动时触发，完成定时任务初始化
+ * @param eventLoop
+ * @param milliseconds
+ * @param proc
+ * @param clientData
+ * @param finalizerProc
+ * @return
+ */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
+    // 更新时间计数器【时间事件id】
     long long id = eventLoop->timeEventNextId++;
+    // 创建时间事件结构
     aeTimeEvent *te;
-
+    //分配内存
     te = zmalloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
+    // 设置 ID
     te->id = id;
+    // 设定处理事件的时间
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
+    // 设置事件处理器
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
+    // 设置私有数据
     te->clientData = clientData;
+    // 将新事件放入表头
     te->prev = NULL;
     te->next = eventLoop->timeEventHead;
     if (te->next)
@@ -344,11 +375,18 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     eventLoop->timeEventHead = te;
     return id;
 }
-
+/**
+ * 删除时间事件
+ * @param eventLoop
+ * @param id
+ * @return
+ */
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
+    // 遍历链表
     while(te) {
+        // 发现目标事件，删除
         if (te->id == id) {
             te->id = AE_DELETED_EVENT_ID;
             return AE_OK;
@@ -369,6 +407,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
+/**     返回距离当前时间最近的的时间事件 */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -385,10 +424,16 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 }
 
 /* Process time events */
+/**
+ * 与文件事件不同，时间事件处理器只有一个，用来处理到达其指定时间的时间事件，并判断其是否需要继续循环，即周期事件
+ * @param eventLoop
+ * @return
+ */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
     long long maxId;
+    //获取当前时间
     time_t now = time(NULL);
 
     /* If the system clock is moved to the future, and then set back to the
@@ -399,6 +444,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
+    // 通过重置事件的运行时间，
+    // 防止因时间穿插（skew）而造成的事件处理混乱
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -406,8 +453,10 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             te = te->next;
         }
     }
+    // 更新最后一次处理时间事件的时间
     eventLoop->lastTime = now;
-
+    // 遍历链表
+    // 执行那些已经到达的事件
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
@@ -435,22 +484,29 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
          * add new timers on the head, however if we change the implementation
          * detail, this check may be useful again: we keep it here for future
          * defense. */
+        // 跳过无效事件
         if (te->id > maxId) {
             te = te->next;
             continue;
         }
+        // 获取当前时间
         aeGetTime(&now_sec, &now_ms);
+        // 如果当前时间等于或等于事件的执行时间，那么说明事件已到达，执行这个事件
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
             int retval;
 
             id = te->id;
+            // 执行事件处理器，并获取返回值
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
+            // 记录是否有需要循环执行这个事件时间
             if (retval != AE_NOMORE) {
+                // 是的， retval 毫秒之后继续执行这个时间事件
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
+                // 不，将这个事件删除
                 te->id = AE_DELETED_EVENT_ID;
             }
         }
@@ -473,7 +529,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  *
  * The function returns the number of events processed. */
-/** 事件处理*/
+/** 时间事件是与文件事件由同一个事件分派器来调度的，如果有时间事件存在的话，文件事件的阻塞时间将由最近的时间事件与当前时间的差来决定：*/
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -491,12 +547,15 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         int j;
         aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
-
+        // 获取最近的时间事件
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
+            // 如果时间事件存在的话
+            // 那么根据最近可执行时间事件和现在时间的时间差来决定文件事件的阻塞时间
             long now_sec, now_ms;
-
+            // 计算距今最近的时间事件还要多久才能达到
+            // 并将该时间距保存在 tv 结构中
             aeGetTime(&now_sec, &now_ms);
             tvp = &tv;
 
@@ -505,7 +564,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             long long ms =
                 (shortest->when_sec - now_sec)*1000 +
                 shortest->when_ms - now_ms;
-
+            // 时间差小于 0 ，说明事件已经可以执行了，将秒和毫秒设为 0 （不阻塞）
             if (ms > 0) {
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
@@ -517,15 +576,17 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to set the timeout
              * to zero */
+            // 执行到这一步，说明没有时间事件
+            // 那么根据 AE_DONT_WAIT 是否设置来决定是否阻塞，以及阻塞的时间长度
             if (flags & AE_DONT_WAIT) {
                 tv.tv_sec = tv.tv_usec = 0;
                 tvp = &tv;
             } else {
                 /* Otherwise we can block */
+                // 文件事件可以阻塞直到有事件到达为止
                 tvp = NULL; /* wait forever */
             }
         }
-
         if (eventLoop->flags & AE_DONT_WAIT) {
             tv.tv_sec = tv.tv_usec = 0;
             tvp = &tv;
@@ -598,6 +659,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
+    // 执行时间事件
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 

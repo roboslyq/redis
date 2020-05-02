@@ -1820,25 +1820,36 @@ void checkChildrenDone(void) {
     }
 }
 
-/* This is our timer interrupt, called server.hz times per second.
+/*
+ * This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
- *
+ * 这是我们的定时任务器(timer interrupt),每秒执行server.hz 次。我们将完成下面这些内容：
  * - Active expired keys collection (it is also performed in a lazy way on
- *   lookup).
- * - Software watchdog.
- * - Update some statistic.
- * - Incremental rehashing of the DBs hash tables.
- * - Triggering BGSAVE / AOF rewrite, and handling of terminated children.
- * - Clients timeout of different kinds.
- * - Replication reconnection.
- * - Many more...
+ *   lookup). 清理过期的keys
+ * - Software watchdog. 软件看门狗
+ * - Update some statistic. 更新服务器的各类统计信息，比如时间、内存占用、数据库占用情况等
+ * - Incremental rehashing of the DBs hash tables. Db的rehashing操作：对不合理的数据库进行大小调整
+ * - Triggering BGSAVE / AOF rewrite, and handling of terminated children. 尝试进行 AOF 或 RDB 持久化操作
+ * - Clients timeout of different kinds.：关闭和清理连接失效的客户端
+ * - Replication reconnection.  如果服务器是主节点的话，对附属节点进行定期同步
+ * - Many more... 其它更多
  *
  * Everything directly called here will be called server.hz times per second,
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
+ * 1、 Redis 将 serverCron 作为时间事件来运行， 从而确保它每隔一段时间就会自动运行一次，
+ * 2、serverCron 需要在 Redis 服务器运行期间一直定期运行， 所以它是一个循环时间事件：  s
+ *      erverCron 会一直定期执行，直到服务器关闭为止
+ *
  */
-
+/**
+ * 实现定时任务处理接口
+ * @param eventLoop
+ * @param id
+ * @param clientData
+ * @return
+ */
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -2723,22 +2734,23 @@ void resetServerStats(void) {
 }
 /**
  * 初始化服务器
- *  1 注册信号事件
- *  2 初始化客户端模块
- *  3 初始化共享对象
- *  4 检测设置最大客户端连接数
- *  5 初始化DB
- *  6 初始化网络连接
- *  7 初始化AOF(可选)
- *  8 初始化服务器计时器
- *  9 初始化后台计划任务
- *  10 初始化lua脚本
- *  11 初始化慢日志查询
- *  12 初始化后台线程任务系统
+ *      1 注册信号事件
+ *      2 初始化客户端模块
+ *      3 初始化共享对象
+ *      4 检测设置最大客户端连接数
+ *      5 初始化EventLoop
+ *      6 创建DB(未初始化)
+ *      7 初始化网络连接
+ *      8 初始化AOF(可选)
+ *      9 初始化服务器计时器
+ *      10 初始化后台计划任务
+ *      11 初始化lua脚本
+ *      12 初始化慢日志查询
+ *      13 初始化后台线程任务系统
  */
 void initServer(void) {
     int j;
-    // 注册几个事件响应处理器，比如前台模式运行或者调试模式的处理
+    /** 1 注册信号事件: 比如前台模式运行或者调试模式的处理 */
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
@@ -2747,11 +2759,11 @@ void initServer(void) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
     }
-    // 初始化客户端相关的参数，设置到 server 中
     /* Initialization after setting defaults from the config system. */
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
+    /** 2 初始化客户端模块：初始化客户端相关的参数 */
     server.current_client = NULL;
     server.fixed_time_expire = 0;
     server.clients = listCreate();
@@ -2774,12 +2786,13 @@ void initServer(void) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
-    // 全局共享对象, 比如 OK, 1-10000, ...
+    /** 3 初始化共享对象 全局共享对象, 比如 OK, 1-10000, ... */
     // 性能优化, 避免对相同的对象反复创建
     createSharedObjects();
     // 最大允许打开文件句柄数控制
+    /** 4 检测设置最大客户端连接数 */
     adjustOpenFilesLimit();
-
+    /** 5 初始化EventLoop */
     // ae循环事件库第1步======>创建事件循环对象 (aeEventLoop), 在 ae.c 中实现。(类似于NIO编程中的selector概念，后面需要将监听的fd添加到这个事件库里)
     // 此处只是完成事件库创建，还没有完成fd注册。
     // maxclients 代表用户配置的最大连接数，可在启动时由 --maxclients 指定，默认为 10000。
@@ -2792,10 +2805,11 @@ void initServer(void) {
         exit(1);
     }
 
-    //  ======>创建db对象，所有数据存储其中
+    /** 6 初始化DB   ======>创建db对象，所有数据存储其中 */
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    /** 7 初始化网络连接 */
     //  ======>打开服务端口监听(包括IPV6和IPV4) server.port = 6379
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
@@ -2845,7 +2859,7 @@ void initServer(void) {
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
     server.cronloops = 0;
-
+    /** 8 初始化AOF(可选) */
     // rdb,aof 参数初始化
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
@@ -2868,6 +2882,7 @@ void initServer(void) {
     server.rdb_save_time_start = -1;
     server.dirty = 0;
     resetServerStats();
+    /** 9 初始化服务器计时器 */
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
@@ -2889,6 +2904,7 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    /** 10 初始化后台计划任务 */
     // 创建定时器，用于运行后台事务，每隔1s运行一次
     // 由 serverCron 承载任务，执行任务如 指标统计，操作日志持久化，db扩容,客户端管理...
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
@@ -2957,11 +2973,11 @@ void initServer(void) {
     if (server.cluster_enabled) clusterInit();
     // 主从复杂初始化
     replicationScriptCacheInit();
-    // lua 脚本初始化
+    /** 11 初始化lua脚本 */
     scriptingInit(1);
-    // 初始化"慢操作"日志变量
+    /** 12 初始化慢日志查询 */
     slowlogInit();
-    // 延迟监控初始化，仅创建变量
+    /** 13 初始化后台线程任务系统*/
     latencyMonitorInit();
 }
 
