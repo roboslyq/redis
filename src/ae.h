@@ -117,7 +117,9 @@ typedef struct aeFileEvent {
 } aeFileEvent;
 
 /* Time event structure */
-/** 定义一个时间事件结构：本质是一个链表*/
+/** 定义一个时间事件结构：本质是一个链表，因为时间事件主要涉及到遍历，删除（delete）操作，这种类型的操作如果采用数组的方式，效率太低
+ * 所以就采用链表形式。但文件事件主要涉及fd的查找，相对与链表而言，数组的查找速度要快很多。
+ * 。*/
 typedef struct aeTimeEvent {
     //时间事件标识符，用于唯一标识该时间事件，并且用于删除时间事件
     long long id; /* time event identifier. */

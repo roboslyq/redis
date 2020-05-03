@@ -2218,7 +2218,8 @@ char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 char *redisBuildIdString(void);
 
-/* Commands prototypes */
+/* Commands prototypes ----start */
+/** 命令处理函数定义 2420-2223 + 1 = 198个命令*/
 void authCommand(client *c);
 void pingCommand(client *c);
 void echoCommand(client *c);
@@ -2417,6 +2418,7 @@ void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void lcsCommand(client *c);
+/* Commands prototypes ----end */
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

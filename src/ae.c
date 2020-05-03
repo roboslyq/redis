@@ -556,10 +556,20 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
+        /** 距离当前时间最近的时间事件 */
         aeTimeEvent *shortest = NULL;
+        /** 关键参数
+         * tv:保存了当前时间
+         * tvp: 记录了离当前时间最近的时间事件相关的时间数据(即离当前时间最近的事件还有多久发生？)
+         *      如果是100ms，那么我们可以把epoll()的超时时间设置很tvp即100ms。因为在100ms内如果epoll()自己有事件发生，那
+         *      么正常的执行事件，解除阻塞，如果100ms内epoll没有事件发生，那么也解除阻塞，因为此时有timeEvent需要执行了。
+         *      很巧妙的设计！！！
+         *
+         *      因此，时间事件不是很精确，应该有一点点延迟！！
+         * */
         struct timeval tv, *tvp;
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT)) {
-            // 获取最近的时间事件
+            // 获取离当前时间最近的时间事件
             shortest = aeSearchNearestTimer(eventLoop);
         }
         if (shortest) { // 如果时间事件存在的话
@@ -570,8 +580,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             aeGetTime(&now_sec, &now_ms);
             tvp = &tv;
 
-            /* How many milliseconds we need to wait for the next
-             * time event to fire? */
+            /* How many milliseconds we need to wait for the next time event to fire? */
+            /** 下一个时间事件还需要等待ms数*/
             long long ms =
                 (shortest->when_sec - now_sec)*1000 +
                 shortest->when_ms - now_ms;
@@ -580,6 +590,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
+                // epoll不阻塞，不管有没有事件均立刻返回，因为有时间事件需要执行
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
             }
@@ -594,7 +605,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp = &tv;
             } else {
                 /* Otherwise we can block */
-                // 文件事件可以阻塞直到有事件到达为止
+                // 完全没有时间事件需要处理，那么文件事件可以阻塞直到有事件到达为止
                 tvp = NULL; /* wait forever */
             }
         }
@@ -605,7 +616,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
-        /** 多路利用监听：阻塞直到有数据返回或者超时。windowns默认使用select实现 */
+        /**
+         * 多路利用监听：
+         *      阻塞直到有数据返回或者超时。windowns默认使用select实现关键参数：
+         *              tvp是从shortest指针里获得的，作为epoll_wait()的超时时间。
+         *      因此时间事件和文件事件就这样共存了！！！有文件事件，正常执行，没有文件事件就是tvp超时时间，即有时间事件需要执行了。
+         * */
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */

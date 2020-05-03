@@ -31,7 +31,19 @@
 #include "server.h"
 #include "connhelpers.h"
 #include "adlist.h"
-
+/**
+ * 1、TLS基本概念
+ *      TLS（Transport Layer Security，安全传输层)，TLS是建立在传输层TCP协议之上的协议，服务于应用层，
+ *      它的前身是SSL（Secure Socket Layer，安全套接字层），它实现了将应用层的报文进行加密后再交由TCP进行传输的功能。
+ *      在SSL更新到3.0时，IETF对SSL3.0进行了标准化，并添加了少数机制(但是几乎和SSL3.0无差异)，标准化后的IETF更名为TLS1.0(Transport Layer Security 安全传输层协议)，
+ *      可以说TLS就是SSL的新版本3.1，并同时发布“RFC2246-TLS加密协议详解”
+ * 2、TLS发展历史
+ *      TLS 的前身其实就是 SSL（Secure Sockets Layer），Netscape 是最早发布 SSL 的公司，后续由于互联网标准化组织的接手，
+ *      将 SSL 标准化，并在 1999 年将其称为 TLS（Transport Layer Security）。
+ *      后续又在 2006 年 4 月对 TLS 1.0 进行了更新，这个版本与 1.0 差异不大。2008 年发布了 TLS 1.2，也就是目前 Apple 推荐在 HTTPS 网络上使用的协议
+ * 3、OPENSSL又是什么？
+ *      OPENSSL是对SSL标准的一种开源具体实现
+ * */
 #ifdef USE_OPENSSL
 
 #include <openssl/ssl.h>

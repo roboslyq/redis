@@ -5092,7 +5092,13 @@ int main(int argc, char **argv) {
     //ACL权限控制
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
+    /**
+     * 用户扩展模块初始化加载
+     * */
     moduleInitModulesSystem();
+    /**
+     * TLS初始化
+     */
     tlsInit();
 
     /* Store the executable path and arguments in a safe place in order
