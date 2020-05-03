@@ -415,11 +415,12 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
     aeTimeEvent *nearest = NULL;
-
+    //循环遍列事件链表，取出距离时间当前最近的事件。（复杂度O(n),但一般事件链表不会太长，对性能影响不是很大）
     while(te) {
-        if (!nearest || te->when_sec < nearest->when_sec ||
-                (te->when_sec == nearest->when_sec &&
-                 te->when_ms < nearest->when_ms))
+        if (!nearest                                //第1次循环，nearest肯定为空
+            || te->when_sec < nearest->when_sec     //如果链表的下一个节点(te)的执行时间小于当前节点(nearest)的时间，则置换
+            || (te->when_sec == nearest->when_sec && te->when_ms < nearest->when_ms)//如果秒数相同，则比较毫秒数
+            )
             nearest = te;
         te = te->next;
     }
@@ -553,8 +554,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * 请注意，我们希望调用select()，即使没有要处理的文件事件(IO事件)，因为我们希望处理时间事件
      * 使用线程sleep()直到下一次事件触发。
      * */
-    if (eventLoop->maxfd != -1 ||
-        ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
+    if (eventLoop->maxfd != -1 || //有文件事件被注册到eventloop中
+        ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {//有时间事件并且时间事件需要等待
         int j;
         /** 距离当前时间最近的时间事件 */
         aeTimeEvent *shortest = NULL;
@@ -564,7 +565,6 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
          *      如果是100ms，那么我们可以把epoll()的超时时间设置很tvp即100ms。因为在100ms内如果epoll()自己有事件发生，那
          *      么正常的执行事件，解除阻塞，如果100ms内epoll没有事件发生，那么也解除阻塞，因为此时有timeEvent需要执行了。
          *      很巧妙的设计！！！
-         *
          *      因此，时间事件不是很精确，应该有一点点延迟！！
          * */
         struct timeval tv, *tvp;
@@ -585,11 +585,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             long long ms =
                 (shortest->when_sec - now_sec)*1000 +
                 shortest->when_ms - now_ms;
-            // 时间差小于 0 ，说明事件已经可以执行了，将秒和毫秒设为 0 （不阻塞）
+            //如果时间差大于0，表示时间事件还需要等待
             if (ms > 0) {
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
+                // 时间差小于 0 ，说明事件已经可以执行了，将秒和毫秒设为 0 （不阻塞）
                 // epoll不阻塞，不管有没有事件均立刻返回，因为有时间事件需要执行
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
@@ -600,13 +601,13 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * to zero */
             // 执行到这一步，说明没有时间事件
             // 那么根据 AE_DONT_WAIT 是否设置来决定是否阻塞，以及阻塞的时间长度
-            if (flags & AE_DONT_WAIT) {
+            if (flags & AE_DONT_WAIT) {//不需要阻塞，那么tv相关属性设置为0，即下面的poll函数不阻塞，立刻返回值
                 tv.tv_sec = tv.tv_usec = 0;
                 tvp = &tv;
             } else {
                 /* Otherwise we can block */
                 // 完全没有时间事件需要处理，那么文件事件可以阻塞直到有事件到达为止
-                tvp = NULL; /* wait forever */
+                tvp = NULL; /* wait forever ，下面的poll函数永久阻塞*/
             }
         }
         if (eventLoop->flags & AE_DONT_WAIT) {
@@ -626,9 +627,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
+            //sleep后的回调函数处理
             eventLoop->aftersleep(eventLoop);
         /** 当有事件来时，进行事件处理，包括 ACCEPT，READ,WRITE等事件*/
         for (j = 0; j < numevents; j++) {
+//            eventLoop->fired数组是在上面的aeApiPoll()函数中进地赋值的
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -656,12 +659,13 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             /** 读事件处理 */
             if (!invert && fe->mask & mask & AE_READABLE) {
                 /**
+                 * 读事件处理器：
                  * 具体的事件与事件处理器映射关系在connection.c ->ConnectionType CT_Socket 已经定义好了。
-                 * 第1次：客户端发起ACCEPT连接，rfileProc = networkding.c -> acceptTcpHandler
+                 * 第1次：客户端发起ACCEPT连接，rfileProc = networking.c -> acceptTcpHandler
                  * 第2次：客户端连接时，会默认发起一次连接事件，但没有具体指令执行。rfileProc = connection.c -> connSocketEventHandler
                  * 第3次: 客户端发起命令,比如“set a b”,rfileProc = connection.c -> connSocketEventHandler
                  */
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);//读事件处理器
+                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
             }
@@ -724,7 +728,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
  * 监听事件主循环器
  * 1、取出最近的一次超时事件。
  * 2、计算该超时事件还有多久才可以触发。
- * 3、等待网络事件触发或者超时(epoll_wait必须要指定一个超时时间。)。
+ * 3、等待网络事件触发或者超时(epoll_wait必须要指定一个超时时间：超时时间为离当前最近的下一次时间事件。如果没有时间事件，那么将不设置超时间，直接有IO事件发生)。
  * 4、处理触发的各个事件，包括网络事件和超时事件
  * @param eventLoop
  */
@@ -733,6 +737,7 @@ void aeMain(aeEventLoop *eventLoop) {
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
+        //ae事件处理器
         aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
     }
 }

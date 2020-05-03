@@ -2989,10 +2989,18 @@ void initServer(void) {
  * Specifically, creation of threads due to a race bug in ld.so, in which
  * Thread Local Storage initialization collides with dlopen call.
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
+/**
+ * 最后一次初始化serer:主要是初始化各种thread相关信息
+ */
 void InitServerLast() {
+
+    /** backgroud IO 初始化*/
     bioInit();
+    /** 对IO线程进行初始化 */
     initThreadedIO();
+    /** 设置了jemalloc后台线程 */
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
+    /** 设置redis启动之后占用内存数 */
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
@@ -5096,9 +5104,6 @@ int main(int argc, char **argv) {
      * 用户扩展模块初始化加载
      * */
     moduleInitModulesSystem();
-    /**
-     * TLS初始化
-     */
     tlsInit();
 
     /* Store the executable path and arguments in a safe place in order
@@ -5227,12 +5232,16 @@ int main(int argc, char **argv) {
     #ifdef __linux__
         linuxMemoryWarnings();
     #endif
+        /**模块化初始化 */
         moduleLoadFromQueue();
+        /** ACL用户加载  */
         ACLLoadUsersAtStartup();
+        /** 最后一次初始化Server（因为前面已经对Server进行了相关的初始化，在这里还有一些其它的信息需要完成初始化） */
         InitServerLast();
-        /* 从持久AOF或RDB文件中恢复数据 */
+        /** 从持久AOF或RDB文件中恢复数据 */
         loadDataFromDisk();
         if (server.cluster_enabled) {
+            //如果是cluster模式，则检查Cluster相关配置
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,
                     "You can't have keys in a DB different than DB 0 when in "
@@ -5253,7 +5262,9 @@ int main(int argc, char **argv) {
             }
         }
     } else {
+        /** 最后一次初始化Server（因为前面已经对Server进行了相关的初始化，在这里还有一些其它的信息需要完成初始化） */
         InitServerLast();
+        /** 启动sentinel */
         sentinelIsRunning();
     }
 

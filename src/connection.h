@@ -35,14 +35,14 @@
 
 struct aeEventLoop;
 typedef struct connection connection;
-
+/** 连接状态枚举 */
 typedef enum {
     CONN_STATE_NONE = 0,
-    CONN_STATE_CONNECTING,
-    CONN_STATE_ACCEPTING,
-    CONN_STATE_CONNECTED,
-    CONN_STATE_CLOSED,
-    CONN_STATE_ERROR
+    CONN_STATE_CONNECTING, //连接中
+    CONN_STATE_ACCEPTING,  //
+    CONN_STATE_CONNECTED,  //已连接，可正常读写数据
+    CONN_STATE_CLOSED,     //已经关闭
+    CONN_STATE_ERROR       //异常
 } ConnectionState;
 
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */

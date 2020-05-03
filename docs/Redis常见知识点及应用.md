@@ -51,3 +51,14 @@ RESP传输的最小单元类型
 
 >  https://redis.io/topics/protocol
 
+
+
+# Redis线程模型？
+
+> Redis 6 多线程模型
+
+# Redis RESP协议
+
+> Redis6 RESP 3
+
+Redis

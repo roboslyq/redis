@@ -29,14 +29,20 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/**
+ * 1、先判断是否使用tcmalloc，如果是，会用tcmalloc对应的函数替换掉标准的libc中的malloc和free函数实现。
+ * 2、其次会判断jemalloc是否可用
+ * 3、最后如果都没有使用才会用标准的libc中的内存管理函数。
+ * 注意：redis2.4.4及以上版本中，jemalloc已经作为源码包的一部分包含在源码包中，路径是antirez/redis/deps/jemalloc，
+ *      所以可以直接被使用。而如果你要使用tcmalloc的话，是需要自己安装的。
+ */
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
 /* Double expansion needed for stringification of macro values. */
 #define __xstr(s) __str(s)
 #define __str(s) #s
-
+/**  默认先判断TCMALLOC */
 #if defined(USE_TCMALLOC)
 #define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
 #include <google/tcmalloc.h>
@@ -46,8 +52,7 @@
 #else
 #error "Newer version of tcmalloc required"
 #endif
-
-#elif defined(USE_JEMALLOC)
+#elif defined(USE_JEMALLOC) /**  其次JEMALLOC */
 #define ZMALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
 #include <jemalloc/jemalloc.h>
 #if (JEMALLOC_VERSION_MAJOR == 2 && JEMALLOC_VERSION_MINOR >= 1) || (JEMALLOC_VERSION_MAJOR > 2)
@@ -64,7 +69,7 @@
 #endif
 
 #ifndef ZMALLOC_LIB
-#define ZMALLOC_LIB "libc"
+#define ZMALLOC_LIB "libc" /** 最后使用libc */
 #ifdef __GLIBC__
 #include <malloc.h>
 #define HAVE_MALLOC_SIZE 1

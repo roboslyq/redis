@@ -1106,7 +1106,7 @@ struct redisServer {
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */
-    int io_threads_num;         /* Number of IO threads to use. */
+    int io_threads_num;         /* Number of IO threads to use. IO线程数量，Redis6之后可以设置多线程IO */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
 
     /* RDB / AOF loading information */

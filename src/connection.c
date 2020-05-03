@@ -396,7 +396,11 @@ int connBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;
     return anetBlock(NULL, conn->fd);
 }
-
+/**
+ * 设置非阻塞
+ * @param conn
+ * @return
+ */
 int connNonBlock(connection *conn) {
     if (conn->fd == -1) return C_ERR;
     return anetNonBlock(NULL, conn->fd);

@@ -147,7 +147,7 @@ static int anetSetTcpNoDelay(char *err, int fd, int val)
     }
     return ANET_OK;
 }
-
+/** TCP 无延迟 */
 int anetEnableTcpNoDelay(char *err, int fd)
 {
     return anetSetTcpNoDelay(err, fd, 1);

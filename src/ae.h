@@ -158,6 +158,7 @@ typedef struct aeEventLoop {
     aeFileEvent *events; /* Registered events */
     //已触发的事件
     aeFiredEvent *fired; /* Fired events */
+    //时间事件链表中的头
     aeTimeEvent *timeEventHead;
     //停止标志，1表示停止
     int stop;
