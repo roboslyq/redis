@@ -39,45 +39,66 @@
 
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
-
+/**
+ * 系统IO操作的封装
+ *  1、Redis中涉及到多种io，如socket与file，为了统一对它们的操作，redis设计了一个抽象层，即rio，使用rio可以实现将数据写入到不同的底层io，但是接口相同。
+ *  2、rio的实现在rio.h与rio.c源文件中，支持内存、文件、socket集合三类底层io
+ *  3、struct rio中声明了统一的io操作接口，并且包含一个底层io对象的union结构。使用不同的底层io初始化rio实例后，
+ *      调用rio的抽象接口即会调用对应底层io的实现。以面向对象的思想即是，rio为抽象类，它拥有三个子类:buffer、file及fdset，
+ *      这三个子类实现了抽象类声明的接口。使用者可以使用它们的父类rio进行编程，实现多态性。
+ * */
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
      * value is simplified to: zero on error, non zero on complete success. */
+    /*  后端方法：函数的返回值为0表示发生错误，返回值为非0表示操作成功。 */
+
+    // 数据流读操作
     size_t (*read)(struct _rio *, void *buf, size_t len);
+    // 数据流写操作
     size_t (*write)(struct _rio *, const void *buf, size_t len);
+    // 读或写操作的当前偏移量
     off_t (*tell)(struct _rio *);
+    // flush操作
     int (*flush)(struct _rio *);
     /* The update_cksum method if not NULL is used to compute the checksum of
      * all the data that was read or written so far. The method should be
      * designed so that can be called with the current checksum, and the buf
      * and len fields pointing to the new block of data to add to the checksum
      * computation. */
+    // 更新校验和
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum and flags (see RIO_FLAG_*) */
+    // 当前校验和
     uint64_t cksum, flags;
 
     /* number of bytes read or written */
+    // 已读或已写的字节数
     size_t processed_bytes;
 
     /* maximum single read or write chunk size */
+    // 每次读或写操作的最大字节数
     size_t max_processing_chunk;
 
     /* Backend-specific vars. */
+    // io变量
     union {
         /* In-memory buffer target. */
+        // 内存缓冲区buffer结构体
         struct {
-            sds ptr;
-            off_t pos;
+            sds ptr;// buffer中的内容，实际就是char数组
+            off_t pos; // 偏移量
         } buffer;
         /* Stdio file pointer target. */
+        // 文件结构体
         struct {
-            FILE *fp;
-            off_t buffered; /* Bytes written since last fsync. */
-            off_t autosync; /* fsync after 'autosync' bytes written. */
+            FILE *fp;  // 打开的文件句柄
+            off_t buffered; /* Bytes written since last fsync. 最后一个fsync后写入的字节数 */
+            off_t autosync; /* fsync after 'autosync' bytes written. 多少字节进行一次fsync操作*/
         } file;
         /* Connection object (used to read from socket) */
+        // Connection结构体，主要是从socket中读取数据
         struct {
             connection *conn;   /* Connection */
             off_t pos;    /* pos in buf that was returned */
@@ -87,8 +108,8 @@ struct _rio {
         } conn;
         /* FD target (used to write to pipe). */
         struct {
-            int fd;       /* File descriptor. */
-            off_t pos;
+            int fd;       /* File descriptor. 打开的文件句柄 */
+            off_t pos; /* 最后一个fsync后写入的字节数*/
             sds buf;
         } fd;
     } io;
