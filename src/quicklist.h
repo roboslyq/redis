@@ -104,10 +104,15 @@ typedef struct quicklistBookmark {
  * 'fill' is the user-requested (or default) fill factor.
  * 'bookmakrs are an optional feature that is used by realloc this struct,
  *      so that they don't consume memory when not used. */
+/** quicklist结构体定义 */
 typedef struct quicklist {
+    //头部
     quicklistNode *head;
+    //尾部
     quicklistNode *tail;
+    // 总大小(entry数据->ziplists)
     unsigned long count;        /* total count of all entries in all ziplists */
+    // quicklistNode的数量
     unsigned long len;          /* number of quicklistNodes */
     int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */

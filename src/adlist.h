@@ -33,11 +33,11 @@
 
 /* Node, List, and Iterator are the only data structures used currently. */
 /**
- * 5种数据类型中的第2种：list
+ * 5种数据类型中的第2种：list:双向链表
  */
 typedef struct listNode {
-    struct listNode *prev;
-    struct listNode *next;
+    struct listNode *prev;//前一ListNode
+    struct listNode *next;//后一ListNode
     void *value;
 } listNode;
 
@@ -45,14 +45,16 @@ typedef struct listIter {
     listNode *next;
     int direction;
 } listIter;
-
+/**
+ * list结构体定义：List仅持有head和tail引用，在head和tail内部构成双向链表
+ */
 typedef struct list {
-    listNode *head;
-    listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
-    unsigned long len;
+    listNode *head;//头部
+    listNode *tail;//尾部
+    void *(*dup)(void *ptr);  //自定义的复制函数，如果不定义，默认策略的复制操作会让原链表和新链表共享同一个数据域
+    void (*free)(void *ptr);  //自定义free操作
+    int (*match)(void *ptr, void *key);//search操作的时候比较两个value是否相等，默认策略是比较两个指针的值
+    unsigned long len; //记录链表的长度，获取长度操作可以O(1)返回
 } list;
 
 /* Functions implemented as macros */

@@ -97,6 +97,7 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
+/** 创建一个quicklist结构体 */
 quicklist *quicklistCreate(void) {
     struct quicklist *quicklist;
 

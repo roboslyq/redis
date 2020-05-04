@@ -901,19 +901,41 @@ struct sharedObjectsStruct {
 };
 
 /* ZSETs use a specialized version of Skiplists */
+/** Redis skiplist实现 */
 typedef struct zskiplistNode {
+    /* redis3.0版本中使用robj类型表示，但是在redis4.0.1中直接使用sds类型表示 */
     sds ele;
+    // 分值(排序使用)
     double score;
+    // 后退指针
     struct zskiplistNode *backward;
+    // 层
+    //** 这里该成员是一种柔性数组，只是起到了占位符的作用,在sizeof(struct zskiplistNode)的时候根本就不占空间,
+    // 这和sdshdr结构的定义是类似的(sds.  h文件)； 如果想要分配一个struct zskiplistNode大小的空间，那么应该的分配的大小为sizeof(struct zskiplistNode) + sizeof(struct zskiplistLevel) *   count)。
+    // 其中count为柔性数组中的元素的数量
+
     struct zskiplistLevel {
+        // 前进指针
         struct zskiplistNode *forward;
+        // 跨度，用于记录两个节点的距离
         unsigned long span;
     } level[];
 } zskiplistNode;
 
+/**
+ * Redis skiplist实现
+ *     1、 跳跃表是有序数据结构，按分值进行排序，score相同的情况下比较字符串对象的大小，
+ *          level[i]中的forward指针只能指向与它有相同层级的节点
+ *     2、跳表用于实现有序集合对象，通过在节点中放入多个指针，一步跨越多个节点，空间换时间，使查找和插入的平均时间为O(log N)。
+ *     3、通过在每个节点中维持多个指向其他节点的指针， 从而达到快速访问节点的目的。
+ *      跳跃表支持平均O(log N) 最坏 O(N)
+ * */
 typedef struct zskiplist {
+    //头节点和尾节点
     struct zskiplistNode *header, *tail;
+    //节点总数
     unsigned long length;
+    // 表中层数最大的节点的层数
     int level;
 } zskiplist;
 
