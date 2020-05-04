@@ -178,7 +178,9 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
  *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
  */
-
+/**
+ * 命令表定义
+ * */
 struct redisCommand redisCommandTable[] = {
     {"module",moduleCommand,-2,
      "admin no-script",
@@ -1481,6 +1483,11 @@ int allPersistenceDisabled(void) {
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
+/**
+ * 在serverCron()中，设置每100ms被调用
+ * @param metric             统计类型
+ * @param current_reading    统计值
+ */
 void trackInstantaneousMetric(int metric, long long current_reading) {
     long long t = mstime() - server.inst_metric[metric].last_sample_time;
     long long ops = current_reading -
@@ -1683,11 +1690,17 @@ void clientsCron(void) {
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
+/**
+ * 1、key过期清理
+ * 2、扩容
+ * 3、rehashing等任务
+ * */
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
+            //如果是Master，执行过期Key清理
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
             expireSlaveKeys();
@@ -1695,6 +1708,7 @@ void databasesCron(void) {
     }
 
     /* Defrag keys gradually. */
+    /* 逐步整理keys碎片*/
     activeDefragCycle();
 
     /* Perform hash tables rehashing if needed, but only if there are no
@@ -1822,25 +1836,29 @@ void checkChildrenDone(void) {
 
 /*
  * This is our timer interrupt, called server.hz times per second.
+ * 这是我们的定时任务器(timer interrupt),每秒执行server.hz 次。我们将“异步的”完成下面这些内容：
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
- * 这是我们的定时任务器(timer interrupt),每秒执行server.hz 次。我们将完成下面这些内容：
  * - Active expired keys collection (it is also performed in a lazy way on
  *   lookup). 清理过期的keys
- * - Software watchdog. 软件看门狗
+ * - Software watchdog.  更新软件 watchdog 的信息。
  * - Update some statistic. 更新服务器的各类统计信息，比如时间、内存占用、数据库占用情况等
- * - Incremental rehashing of the DBs hash tables. Db的rehashing操作：对不合理的数据库进行大小调整
- * - Triggering BGSAVE / AOF rewrite, and handling of terminated children. 尝试进行 AOF 或 RDB 持久化操作
- * - Clients timeout of different kinds.：关闭和清理连接失效的客户端
+ * - Incremental rehashing of the DBs hash tables. Db的rehashing操作： 对数据库进行渐增式 Rehash
+ * - Triggering BGSAVE / AOF rewrite, and handling of terminated children. 触发 BGSAVE 或者 AOF 重写，并处理之后由 BGSAVE 和 AOF 重写引发的子进程停止。
+ * - Clients timeout of different kinds.：处理客户端超时。
  * - Replication reconnection.  如果服务器是主节点的话，对附属节点进行定期同步
  * - Many more... 其它更多
  *
  * Everything directly called here will be called server.hz times per second,
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
+ * * 因为 serverCron 函数中的所有代码都会每秒调用 server.hz 次，
+ * 为了对部分代码的调用次数进行限制，使用了一个宏 run_with_period(milliseconds) { ... } ，
+ * 这个宏可以将被包含代码的执行次数降低为每 milliseconds 执行一次。
+ *
  * 1、 Redis 将 serverCron 作为时间事件来运行， 从而确保它每隔一段时间就会自动运行一次，
- * 2、serverCron 需要在 Redis 服务器运行期间一直定期运行， 所以它是一个循环时间事件：  s
- * serverCron 会一直定期执行，直到服务器关闭为止
+ * 2、serverCron 需要在 Redis 服务器运行期间一直定期运行， 所以它是一个循环时间事件：
+ *  serverCron 会一直定期执行，直到服务器关闭为止
  *
  */
 /**
@@ -1858,19 +1876,24 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
      * handler if we don't return here fast enough. */
+    /** 如果设置了watchdog_period，那么每个watchdog_period，都会发送sigalrm信号，该信号又会得到处理，来记录此时执行的命令。
+     * 这个过程主要是为了了解一些过长命令的执行影响服务器的整体运行，是一个debug过程*/
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
+    /** 更新缓存时间 */
     updateCachedTime(1);
-
+    //支持动态调整hz
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
+    /** 根据客户端的数量，动态调整hz：当clients越多时，hz频率越高才比较合理 */
     if (server.dynamic_hz) {
         while (listLength(server.clients) / server.hz >
                MAX_CLIENTS_PER_CLOCK_TICK)
         {
             server.hz *= 2;
+            // 最大频率为CONFIG_MAX_HZ = 500
             if (server.hz > CONFIG_MAX_HZ) {
                 server.hz = CONFIG_MAX_HZ;
                 break;
@@ -1878,7 +1901,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
+//   记录过去每秒的命令执行情况
     run_with_period(100) {
+
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
                 server.stat_net_input_bytes);
@@ -1897,9 +1922,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
+//    3、更新统计变量，如内存使用总数，更新server.lruclock，getLRUClock()函数如下
     server.lruclock = getLRUClock();
 
     /* Record the max memory used since the server was started. */
+    //记录最大使用内存
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
@@ -1933,6 +1960,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
+//    是否得到关闭程序的信号，如果是，就进入关闭程序的节奏，如aof，rdb文件的处理，文件描述符的关闭等；
+//          如果之前收到了 SIGTERM 信号，并不会立即做什么事情，只是将server.shutdown_asap 置位，这里判断shutdown_asap ,
+//          调用prepareForShutdown ,关闭服务器，退出执行。但是如果没有退出成功，就不退出了，打印Log，然后移除标志位。
     if (server.shutdown_asap) {
         if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
@@ -1940,6 +1970,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Show some info about non-empty databases */
+    //    每5秒输出一次redis数据库的使用情况，连接数，总键值数
     run_with_period(5000) {
         for (j = 0; j < server.dbnum; j++) {
             long long size, used, vkeys;
@@ -1966,13 +1997,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
+    /** 异步的在clients执行一些操作*/
     clientsCron();
 
     /* Handle background operations on Redis databases. */
+    /** 异步的处理DB的backgroud相关操作*/
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
+    /** 异步完成 BGSAVE */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled)
     {
@@ -1980,6 +2014,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
+    /** 检查是否有后台任务*/
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
         checkChildrenDone();
@@ -2043,14 +2078,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
+    /** 执行主从复制相关任务*/
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
+    /* 执行cluster相关cron */
     run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
+    /* sentinel模式相关*/
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
@@ -2084,7 +2122,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     moduleFireServerEvent(REDISMODULE_EVENT_CRON_LOOP,
                           0,
                           &ei);
-
+    // serverCron()调用次数+1
     server.cronloops++;
     return 1000/server.hz;
 }
@@ -2092,6 +2130,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
+/**  */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
@@ -3188,11 +3227,15 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * command execution, for example when serving a blocked client, you
  * want to use propagate().
  */
+// 向 AOF 和从机发布数据更新
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+    // AOF 策略需要打开，且设置 AOF 传播标记，将更新发布给本地文件
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
+
+    // 设置了从机传播标记，将更新发布给从机
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
@@ -3312,6 +3355,7 @@ void call(client *c, int flags) {
     redisOpArrayInit(&server.also_propagate);
 
     /* Call the command. */
+    // 脏数据标记，数据是否被修改
     dirty = server.dirty;
     updateCachedTime(0);
     start = server.ustime;
@@ -3355,7 +3399,10 @@ void call(client *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
-    /** 如果开启了AOF,则将指令记录到AOF中 (RDB是满足条件定时触发，因此在指令执行之后没有相关操作)*/
+    /**
+     * 1、如果开启了AOF,则将指令记录到AOF中 (RDB是满足条件定时触发，因此在指令执行之后没有相关操作)
+     * 2、如果是主从复制，则还需要将数据复制给从机
+     * */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
     {
@@ -3363,11 +3410,14 @@ void call(client *c, int flags) {
 
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation. */
+        // 如果数据被修改，AOF和REPLICATION或者操作，则需要进行AOF和REPLICATION
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* If the client forced AOF / replication of the command, set
          * the flags regardless of the command effects on the data set. */
+        // 强制主从复制
         if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
+        // 强制 AOF 持久化
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
@@ -3383,6 +3433,7 @@ void call(client *c, int flags) {
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
          * in an explicit way, so we never replicate them automatically. */
+        // 传播数据修改记录
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
@@ -5272,7 +5323,7 @@ int main(int argc, char **argv) {
     if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
-
+    //设置线程阻塞前/唤醒后回调函数
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
     //=====> 创建eventloop: 主循环服务, 只有收到 stop 命令后，才会退出

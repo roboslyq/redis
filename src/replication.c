@@ -38,7 +38,14 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-
+/**
+ * Redis 主从同步有两种方式（或者所两个阶段）：全同步和部分同步。
+ *  主从刚刚连接的时候，进行全同步；
+ *  全同步结束后，进行部分同步。
+ *  当然，如果有需要，Slave 在任何时候都可以发起全同步。
+ *  Redis 策略是，无论如何，首先会尝试进行部分同步，如不成功，要求从机进行全同步，并启动 BGSAVE……BGSAVE
+ *  结束后，传输 RDB 文件；如果成功，允许从机进行部分同步，并传输积压空间中的数据。
+ */
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
@@ -206,6 +213,7 @@ void feedReplicationBacklogWithObject(robj *o) {
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMaster() */
+// 向积压空间和从机发送数据
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
@@ -221,6 +229,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
+    // 没有积压数据且没有从机，直接退出
     if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
 
     /* We can't have slaves attached and no backlog. */
@@ -231,11 +240,12 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         robj *selectcmd;
 
         /* For a few DBs we have pre-computed SELECT command. */
+        // 小于等于 10 的可以用共享对象
         if (dictid >= 0 && dictid < PROTO_SHARED_SELECT_CMDS) {
             selectcmd = shared.select[dictid];
         } else {
+            // 不能使用共享对象，生成 SELECT 命令对应的 redis 对象
             int dictid_len;
-
             dictid_len = ll2string(llstr,sizeof(llstr),dictid);
             selectcmd = createObject(OBJ_STRING,
                 sdscatprintf(sdsempty(),
@@ -244,32 +254,42 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
+        // 这里可能会有疑问：为什么把数据添加入积压空间，又把数据分发给所有的从机？
+        // 为什么不仅仅将数据分发给所有从机呢？
+        // 因为有一些从机会因特殊情况（？？？）与主机断开连接，注意从机断开前有暂存
+        // 主机的状态信息，因此这些断开的从机就没有及时收到更新的数据。redis 为了让
+        // 断开的从机在下次连接后能够获取更新数据，将更新数据加入了积压空间。
+
+        // 将 SELECT 命令对应的 redis 对象数据添加到积压空间
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
+        // 将数据分发所有的从机
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
             addReply(slave,selectcmd);
         }
-
+        // 销毁对象
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
     }
+    // 更新最近一次使用（访问）的数据集
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
+    // 将命令写入积压空间
     if (server.repl_backlog) {
         char aux[LONG_STR_SIZE+3];
-
+        // 命令个数
         /* Add the multi bulk reply length. */
         aux[0] = '*';
         len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
         feedReplicationBacklog(aux,len+3);
-
+        // 逐个命令写入
         for (j = 0; j < argc; j++) {
             long objlen = stringObjectLen(argv[j]);
 
@@ -280,18 +300,32 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
             aux[len+2] = '\n';
+            /* 每个命令格式如下：
+                $3
+                *3
+                SET
+                *4
+                NAME
+                *4
+                Jhon
+             */
+            // 命令长度
             feedReplicationBacklog(aux,len+3);
+            // 命令
             feedReplicationBacklogWithObject(argv[j]);
+            // 换行
             feedReplicationBacklog(aux+len+1,2);
         }
     }
 
     /* Write the command to every slave. */
+    // 立即给每一个从机发送命令
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start. */
+        // 如果从机要求全同步，则不对此从机发送数据
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
 
         /* Feed slaves that are waiting for the initial SYNC (so these commands
@@ -299,11 +333,13 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
          * or are already in sync with the master. */
 
         /* Add the multi bulk length. */
+        // 向从机命令的长度
         addReplyArrayLen(slave,argc);
 
         /* Finally any additional argument that was not stored inside the
          * static buffer if any (from j to argc). */
         for (j = 0; j < argc; j++)
+            // 向从机发送命令
             addReplyBulk(slave,argv[j]);
     }
 }
@@ -2415,6 +2451,7 @@ void replicationAbortSyncTransfer(void) {
  * the replication state (server.repl_state) set to REPL_STATE_CONNECT.
  *
  * Otherwise zero is returned and no operation is perforemd at all. */
+//尝试断开数据传输和主机连接
 int cancelReplicationHandshake(void) {
     if (server.repl_state == REPL_STATE_TRANSFER) {
         replicationAbortSyncTransfer();
@@ -2431,12 +2468,14 @@ int cancelReplicationHandshake(void) {
 }
 
 /* Set replication to the specified master address and port. */
+// 设置新主机
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
     sdsfree(server.masterhost);
     server.masterhost = sdsnew(ip);
     server.masterport = port;
+    // 断开之前主机的连接
     if (server.master) {
         freeClient(server.master);
     }
@@ -2449,6 +2488,7 @@ void replicationSetMaster(char *ip, int port) {
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
     if (was_master) {
+        // 取消缓存主机
         replicationDiscardCachedMaster();
         replicationCacheMasterUsingMyself();
     }
@@ -2532,10 +2572,14 @@ void replicationHandleMasterDisconnection(void) {
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
 }
-
+/**
+ * 主从复制命令
+ * @param c
+ */
 void replicaofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */
+    // cluster模式下不允许自动REPLICAOF
     if (server.cluster_enabled) {
         addReplyError(c,"REPLICAOF not allowed in cluster mode.");
         return;
@@ -2545,6 +2589,7 @@ void replicaofCommand(client *c) {
      * into a master. Otherwise the new master address is set. */
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
+        // slaveof no one 断开主机连接
         if (server.masterhost) {
             replicationUnsetMaster();
             sds client = catClientInfoString(sdsempty(),c);
@@ -2554,7 +2599,6 @@ void replicaofCommand(client *c) {
         }
     } else {
         long port;
-
         if (c->flags & CLIENT_SLAVE)
         {
             /* If a client is already a replica they cannot run this command,
@@ -2566,7 +2610,7 @@ void replicaofCommand(client *c) {
 
         if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
             return;
-
+        // 可能已经连接需要连接的主机
         /* Check if we are already attached to the specified slave */
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
             && server.masterport == port) {
@@ -2579,6 +2623,8 @@ void replicaofCommand(client *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
+        // 断开之前连接主机的连接，连接新的。 replicationSetMaster() 并不会真正连接主机，
+        // 只是修改 struct server 中关于主机的设置。真正的主机连接在 replicationCron() 中完成
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
@@ -3089,16 +3135,25 @@ long long replicationGetSlaveOffset(void) {
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
 /* Replication cron function, called 1 time per second. */
+/** 主从复制 ：管理主从连接的定时程序定时程序，每秒执行一次 在 serverCorn() 中调用*/
 void replicationCron(void) {
     static long long replication_cron_loops = 0;
 
     /* Non blocking connection timeout? */
+    /*
+     * 前提：这是启动多个Redis实例，因为下面的配置是针对每一个slave实例的。
+     * 判断是否IO超时
+     * 1、server.masterhost :主Master服务器存在
+     * 2、从服务器状态server.repl_state为REPL_STATE_CONNECTING 或者 “handshake state”
+     * 3、最后一次从Master读数据到现在时间差，大于超时时间，则表示超时
+     * */
     if (server.masterhost &&
-        (server.repl_state == REPL_STATE_CONNECTING ||
-         slaveIsInHandshakeState()) &&
+        (server.repl_state == REPL_STATE_CONNECTING
+        || slaveIsInHandshakeState()) &&
          (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         serverLog(LL_WARNING,"Timeout connecting to the MASTER...");
+        //终止连接，并设置server.replstate = REDIS_REPL_CONNECT;
         cancelReplicationHandshake();
     }
 
@@ -3111,6 +3166,7 @@ void replicationCron(void) {
     }
 
     /* Timed out master when we are an already connected slave? */
+
     if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED &&
         (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
@@ -3119,9 +3175,11 @@ void replicationCron(void) {
     }
 
     /* Check if we should connect to a MASTER */
+    // 如果需要（ REDIS_REPL_CONNECT），尝试连接主机，真正连接主机的操作在这里
     if (server.repl_state == REPL_STATE_CONNECT) {
         serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
             server.masterhost, server.masterport);
+        // 连接master
         if (connectWithMaster() == C_OK) {
             serverLog(LL_NOTICE,"MASTER <-> REPLICA sync started");
         }

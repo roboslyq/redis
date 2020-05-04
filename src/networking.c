@@ -1876,7 +1876,9 @@ void readQueryFromClient(connection *conn) {
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+    //1、申请空间
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    //2、读请求
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {

@@ -429,8 +429,17 @@ typedef long long ustime_t; /* microsecond time type. */
 #define NET_FIRST_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
 
 /* Using the following macro you can run code inside serverCron() with the
- * specified period, specified in milliseconds.
- * The actual resolution depends on server.hz. */
+ * specified period, specified in milliseconds(毫秒).
+ * The actual resolution depends on server.hz.
+ * 0、(_ms_ <= 1000/server.hz)，如果_ms_小于当前serverCron精度，则无法控制，最多只能每个serverCron时都执行。
+ *      小于 1000/server.hz无法实现调度，只能每次serverCron()时都被调度。
+ * 1、每隔n ms执行一次，n = 1000/server.hz
+ * 2、_ms_为控制具体定时任务S1的时间隔，k = (_ms_)/n,即S1需要k次任务之后的时间间隔。
+ * 3、serverCron的循环次数server.cronloops % k ，如果整除，即表示任务可以被执行了。
+ *
+ * 总结：即通过serverCron()的频率hz和执行次数cronloops来控制时间间隔是不是_ms_整数倍
+ *
+ * */
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
@@ -1045,22 +1054,22 @@ struct redisServer {
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
-    int dynamic_hz;             /* Change hz value depending on # of clients. */
+    int dynamic_hz;             /* Change hz value depending on # of clients. 根据客户端的数量调整hz的频率*/
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
-                                   is enabled. */
-    int hz;                     /* serverCron() calls frequency in hertz */
+                                   is enabled. 可以动态调整hz */
+    int hz;                     /* serverCron() calls frequency in hertz  控制serverCron频率，每秒执行hertz次*/
     redisDb *db;                /* redis的数据库*/
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
-    aeEventLoop *el;            /* 事件监听句柄 */
+    aeEventLoop *el;            /* EventLoop，事件监听句柄，相当于NIO中的selector角色 */
     _Atomic unsigned int lruclock; /* Clock for LRU eviction */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
-    int cronloops;              /* Number of times the cron function run */
+    int cronloops;              /* Number of times the cron function run 定时任务serverCron() 循环次数*/
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
@@ -1268,23 +1277,23 @@ struct redisServer {
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
-    /* Replication (master) */
-    char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
+    /* Replication (master) 主从复制，主配置*/
+    char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID.  */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
-    long long master_repl_offset;   /* My current replication offset */
+    long long master_repl_offset;   /* My current replication offset 全局的数据同步偏移量 */
     long long master_repl_meaningful_offset; /* Offset minus latest PINGs. */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
-    int slaveseldb;                 /* Last SELECTed DB in replication output */
-    int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
+    int slaveseldb;                 /* Last SELECTed DB in replication output 最近一次使用（访问）的数据集*/
+    int repl_ping_slave_period;     /* Master pings the slave every N seconds   主从连接心跳频率*/
+    char *repl_backlog;             /* Replication backlog for partial syncs 积压空间指针*/
+    long long repl_backlog_size;    /* Backlog circular buffer size 积压空间大小*/
+    long long repl_backlog_histlen; /* Backlog actual data length  积压空间中写入的新数据的大小*/
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
+                                       that is the next byte will'll write to. 下一次向积压空间写入数据的起始位置*/
     long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
+                                       byte in the replication backlog buffer. 积压数据的起始位置，是一个宏观值/
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
-                                       gets released. */
+                                       gets released. 积压空间有效时间*/
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
                                        Only valid if server.slaves len is 0. */
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
@@ -1297,20 +1306,20 @@ struct redisServer {
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
     char *masterauth;               /* AUTH with this password with master */
-    char *masterhost;               /* Hostname of master */
-    int masterport;                 /* Port of master */
+    char *masterhost;               /* Hostname of master Master的ip*/
+    int masterport;                 /* Port of master Master端口*/
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
-    int repl_state;          /* Replication status if the instance is a slave */
+    int repl_state;          /* Replication status if the instance is a slave  主从复制的状态，为slave所用*/
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
-    time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
+    time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout  */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
@@ -2302,7 +2311,7 @@ void ttlCommand(client *c);
 void touchCommand(client *c);
 void pttlCommand(client *c);
 void persistCommand(client *c);
-void replicaofCommand(client *c);
+void replicaofCommand(client *c);//主从复制命令
 void roleCommand(client *c);
 void debugCommand(client *c);
 void msetCommand(client *c);
