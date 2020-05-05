@@ -57,25 +57,25 @@
 typedef long long mstime_t; /* millisecond time type. */
 typedef long long ustime_t; /* microsecond time type. */
 
-#include "ae.h"      /* Event driven programming library */
-#include "sds.h"     /* Dynamic safe strings */
-#include "dict.h"    /* Hash tables */
-#include "adlist.h"  /* Linked lists */
-#include "zmalloc.h" /* total memory usage aware version of malloc/free */
-#include "anet.h"    /* Networking the easy way */
-#include "ziplist.h" /* Compact list data structure */
-#include "intset.h"  /* Compact integer set structure */
-#include "version.h" /* Version macro */
-#include "util.h"    /* Misc functions useful in many places */
-#include "latency.h" /* Latency monitor API */
-#include "sparkline.h" /* ASCII graphs API */
+#include "ae.h"      /* Event driven programming library  ae事件驱动包*/
+#include "sds.h"     /* Dynamic safe strings    动态的安全的字符串(String)包*/
+#include "dict.h"    /* Hash tables     字典，本质是HashTable*/
+#include "adlist.h"  /* Linked lists    双向链表 */
+#include "zmalloc.h" /* total memory usage aware version of malloc/free  精确的记录了malloc/free的内存使用*/
+#include "anet.h"    /* Networking the easy way     对网络networking的包装*/
+#include "ziplist.h" /* Compact list data structure  压缩list*/
+#include "intset.h"  /* Compact integer set structure 压缩整数集合*/
+#include "version.h" /* Version macro  版本号宏*/
+#include "util.h"    /* Misc functions useful in many places 工具集*/
+#include "latency.h" /* Latency monitor API 命令延迟监控框架*/
+#include "sparkline.h" /* ASCII graphs API 启动时，打印图形相关API */
 #include "quicklist.h"  /* Lists are encoded as linked lists of
                            N-elements flat arrays */
-#include "rax.h"     /* Radix tree */
-#include "connection.h" /* Connection abstraction */
+#include "rax.h"        /* Radix tree 基数树，一种保存长整形数据类型的数据结构，类型于多叉树*/
+#include "connection.h" /* Connection abstraction  连接抽象，类似于java中的channel*/
 
 #define REDISMODULE_CORE 1
-#include "redismodule.h"    /* Redis modules API defines. */
+#include "redismodule.h"    /* Redis modules API defines.  redis的模块相关API*/
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
@@ -88,6 +88,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define C_ERR                   -1
 
 /* Static server configuration */
+/** hz : 主线程循环监听事件 aeMain()方法每秒循环次数。因为poll会阻塞，可以通过此参数控制阻塞时间*/
 #define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1
 #define CONFIG_MAX_HZ            500
@@ -454,6 +455,7 @@ typedef long long ustime_t; /* microsecond time type. */
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
+/** 五种数据结构 */
 #define OBJ_STRING 0    /* String object. */
 #define OBJ_LIST 1      /* List object. */
 #define OBJ_SET 2       /* Set object. */
@@ -471,6 +473,7 @@ typedef long long ustime_t; /* microsecond time type. */
  * by a 64 bit module type ID, which has a 54 bits module-specific signature
  * in order to dispatch the loading to the right module, plus a 10 bits
  * encoding version. */
+//后续Redis版本新境的数据结构
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 
@@ -1313,7 +1316,7 @@ struct redisServer {
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
                                        that is the next byte will'll write to. 下一次向积压空间写入数据的起始位置*/
     long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer. 积压数据的起始位置，是一个宏观值/
+                                       byte in the replication backlog buffer. 积压数据的起始位置，是一个宏观值 */
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. 积压空间有效时间*/
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1492,7 +1495,7 @@ typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, i
     proc：一个指向命令的实现函数的指针
     arity：参数的数量。可以用 -N 表示 >= N
     sflags：字符串形式的 FLAG，用来计算以下的真实 FLAG
-    flags：位掩码形式的 FLAG，根据 sflags 的字符串计算得出
+    flags： 位掩码形式的 FLAG，根据 sflags 的字符串计算得出
     get_keys_proc：一个可选的函数，用于从命令中取出 key 参数，仅在以下三个参数都不足以表示 key 参数时使用
     first_key_index：第一个 key 参数的位置
     last_key_index：最后一个 key 参数的位置

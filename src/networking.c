@@ -35,6 +35,7 @@
 #include <ctype.h>
 
 static void setProtocolError(const char *errstr, client *c);
+/** 加入多线程IO处理*/
 int postponeClientRead(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
@@ -1853,7 +1854,7 @@ void readQueryFromClient(connection *conn) {
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
-    /**  加入多线程模型已经启用 */
+    /**  加入多线程模型（如果已经启用多线程模型） */
     if (postponeClientRead(c)) return;
 
     // 如果没有启用多线程模型，则走下面继续处理读逻辑
