@@ -2,7 +2,10 @@
 #include "bio.h"
 #include "atomicvar.h"
 #include "cluster.h"
-
+/**
+ * 延迟释放内存，主要是针对redis4.0之后unlink命令。
+ * unlink命令不是阻塞的，是由bio线程执行的，bio线程释放资源时会调用lazyfree.c相关函数。
+ * */
 static size_t lazyfree_objects = 0;
 pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -91,6 +94,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */
+/** 异步的释放一个大对象 */
 void freeObjAsync(robj *o) {
     size_t free_effort = lazyfreeGetFreeEffort(o);
     if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {

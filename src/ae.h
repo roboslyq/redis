@@ -155,9 +155,11 @@ typedef struct aeEventLoop {
     //用于检测系统时间是否变更（判断标准 now<lastTime）
     time_t lastTime;     /* Used to detect system clock skew */
     //注册要使用的文件事件，这里的分离表实现为直接索引，即通过fd来访问，实现事件的分离
-    aeFileEvent *events; /* Registered events */
+    aeFileEvent *events; /* Registered events  存在内存浪费：因为并不是监听每一个文件描述符（比如0，1，2），
+ *                          但是其却要分配足够容纳 setsize 个 aeFileEvent 的数组，好在一个进程也只有一个 aeEventLoop ，
+ *                          而一个 aeFileEvent 也并没有占用太多内存。*/
     //已触发的事件
-    aeFiredEvent *fired; /* Fired events */
+    aeFiredEvent *fired; /* Fired events 与*events同理，也存在一定的内存浪费 */
     //时间事件链表中的头
     aeTimeEvent *timeEventHead;
     //停止标志，1表示停止

@@ -26,7 +26,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/**
+ * redis的正常指令处理都是单线程的，没有创建子线程。指令谁先到就先处理谁。
+ * 但其实在后台还是创建出了一些子线程，处理一些可以异步但比较耗时的任务，主要用于close(2)，fsync(2)的操作
+ */
 #ifndef __BIO_H
 #define __BIO_H
 
@@ -39,9 +42,11 @@ time_t bioOlderJobOfType(int type);
 void bioKillThreads(void);
 
 /* Background job opcodes */
-#define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. */
-#define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
-#define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
-#define BIO_NUM_OPS       3
+/* 后台任务的定义，目前定义了3个后台任务 */
+
+#define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. 系统调用close(2)(其中2是fd)，主要是进行大文件释放，比如replication.c ->bg_unlink() */
+#define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. aof文件的追加刷盘(fsync函数)同步：延迟刷盘时，调用fsync()函数，直接等待磁盘数据刷好(落盘)才返回*/
+#define BIO_LAZY_FREE     2 /* Deferred objects freeing. (4.0后新增,说明之后优化redis后台任务也可能新增 )就是后台释放内存操作，比如 unlink命令， 或者大对象的渐进式释放 dbAsyncDelete()方法*/
+#define BIO_NUM_OPS       3 /** 限定了当前任务类型最大值不能大于3，当大于3时即认为是不正常的任务*/
 
 #endif

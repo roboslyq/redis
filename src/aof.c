@@ -580,7 +580,13 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     decrRefCount(argv[2]);
     return buf;
 }
-
+/**
+ * AOF 追加文件
+ * @param cmd
+ * @param dictid
+ * @param argv
+ * @param argc
+ */
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];
@@ -1585,12 +1591,14 @@ void aofClosePipes(void) {
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
  */
+/** 由定时任务serverCron()触发 */
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
+    // 打开子进程
     if ((childpid = redisFork()) == 0) {
         char tmpfile[256];
 

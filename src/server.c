@@ -3237,7 +3237,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * command execution, for example when serving a blocked client, you
  * want to use propagate().
  */
-// 向 AOF 和从机发布数据更新
+/** 向 AOF 和从机发布数据更新 */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
@@ -3443,7 +3443,7 @@ void call(client *c, int flags) {
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
          * in an explicit way, so we never replicate them automatically. */
-        // 传播数据修改记录
+        /** 传播数据修改记录:即更新AOF文件和向从机发送更新命令 */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
@@ -4900,8 +4900,10 @@ void setupChildSignalHandlers(void) {
     act.sa_handler = sigKillChildHandler;
     sigaction(SIGUSR1, &act, NULL);
     return;
-}
-
+}/**
+ * 创建子进程
+ * @return
+ */
 int redisFork() {
     int childpid;
     long long start = ustime();
