@@ -62,3 +62,26 @@ RESP传输的最小单元类型
 > Redis6 RESP 3
 
 Redis
+
+# Redis 源码中ASAP是什么意思？
+
+As soon as possible
+
+# Redis有哪些场景会fork子进程？
+
+AOF
+
+RDB
+
+MOduble
+
+scripting
+
+# Redis 哪些场景会创建子线程？
+
+1、AOF
+
+2、lazyfree
+
+3、replication
+
