@@ -1336,7 +1336,12 @@ werr:
     stopSaving(0);
     return C_ERR;
 }
-
+/**
+ * 处理bgsave命令
+ * @param filename
+ * @param rsi
+ * @return
+ */
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 

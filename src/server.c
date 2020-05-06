@@ -2021,6 +2021,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
+        /** redis允许用户设置服务器配置的save选项，让服务器每隔一段时间执行一次bgsave。用户可以设置多个保存条件，只要一个条件满足，服务器就会执行bgsave。
+            1、设置保存条件
+                save 900 1   服务器在900秒之内，对数据库进行至少1次修改
+                save 300 10 服务器在300秒之内，对数据库进行至少10次修改
+                save 60 10000 服务器在60秒之内，对数据库进行至少10000次修改
+        */
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -2038,6 +2044,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
+                /** 如果符合条件，则进行自动保存*/
                 rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
