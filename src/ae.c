@@ -502,7 +502,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             int retval;
 
             id = te->id;
-            // 执行事件处理器，并获取返回值
+            // 执行事件处理器，并获取返回值[此处由具体实现可以控制是否异步]
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
             // 记录是否有需要循环执行这个事件时间
@@ -534,16 +534,18 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  *
  * The function returns the number of events processed. */
 /**
+ * 时间事件(TimeEvent) 和 I/O事件(FileEvent)统一调度
  * 1、时间事件是与文件事件由同一个事件分派器来调度的，如果有时间事件存在的话，
  *   文件事件的阻塞时间将由最近的时间事件与当前时间的差来决定：
- * 2、
  * */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
-    /* Nothing to do? return ASAP */
-    /** 没有事件发生时,直接 返回0*/
+    /* Nothing to do? return ASAP (ASAP 就是as soon as possible,尽快) */
+    /** 如果需要处理的事件类型flags不在AE_TIME_EVENTS和AE_FILE_EVENTS之中，则直接立刻返回0。默认情况在
+     * ac.c -> aeMain()中，flags =  AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP ,所以，!(flags & AE_FILE_EVENTS) = false,不会返回
+     * */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want call select() even if there are no
@@ -574,10 +576,13 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
         if (shortest) { // 如果时间事件存在的话
             // 那么根据最近可执行时间事件和现在时间的时间差来决定文件事件的阻塞时间
+            // 此处实现很精妙，阻塞时间(超时时间)不会影响IO事件本身，因为一旦IO有事件到来，线程会立刻返回不会继续阻塞。
             long now_sec, now_ms;
             // 计算距今最近的时间事件还要多久才能达到
             // 并将该时间距保存在 tv 结构中
             aeGetTime(&now_sec, &now_ms);
+            //此处是将tv的地址赋值给tvp，那么tvp即指向tv所有在地址。后续对tvp赋值相关操作，等同于对tv相关赋值操作。
+            //事件存在，直接操作tvp。下面代码如果事件不存在，则直接给tv赋值
             tvp = &tv;
 
             /* How many milliseconds we need to wait for the next time event to fire? */
@@ -590,7 +595,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 tvp->tv_sec = ms/1000;
                 tvp->tv_usec = (ms % 1000)*1000;
             } else {
-                // 时间差小于 0 ，说明事件已经可以执行了，将秒和毫秒设为 0 （不阻塞）
+                // 时间差小于或者等于 0 ，说明时间事件已经需要执行了，将秒和毫秒设为 0 （不阻塞）
                 // epoll不阻塞，不管有没有事件均立刻返回，因为有时间事件需要执行
                 tvp->tv_sec = 0;
                 tvp->tv_usec = 0;
@@ -737,7 +742,7 @@ void aeMain(aeEventLoop *eventLoop) {
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
-        //ae事件处理器
+        //ae事件处理器( 0b1011)
         aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
     }
 }
@@ -745,11 +750,19 @@ void aeMain(aeEventLoop *eventLoop) {
 char *aeGetApiName(void) {
     return aeApiName();
 }
-
+/**
+ * 设置阻塞前回调函数
+ * @param eventLoop
+ * @param beforesleep
+ */
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
 }
-
+/**
+ * 设置阻塞后(有事件或者超时)时回调函数
+ * @param eventLoop
+ * @param aftersleep
+ */
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }

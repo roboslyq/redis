@@ -73,11 +73,11 @@
                            to do that in a group fashion. 对于WRITABLE，如果可读事件已经在同一个事件循环迭代中触发，则不要触发该事件。
                            当您希望在发送回复之前将内容持久化到磁盘，并且希望以组的方式执行此操作时，此选项非常有用*/
 
-#define AE_FILE_EVENTS 1
-#define AE_TIME_EVENTS 2
-#define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
-#define AE_DONT_WAIT 4
-#define AE_CALL_AFTER_SLEEP 8
+#define AE_FILE_EVENTS 1    // 0b0001
+#define AE_TIME_EVENTS 2    // 0b0010
+#define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS) //0b0011
+#define AE_DONT_WAIT 4  //0b0100  ,AE事件不需要等待，即timeout = 0。所以对应的poll立即返回，不会阻塞。
+#define AE_CALL_AFTER_SLEEP 8   //0b1000
 
 #define AE_NOMORE -1
 #define AE_DELETED_EVENT_ID -1
@@ -146,7 +146,7 @@ typedef struct aeFiredEvent {
 /* State of an event based program */
 /* 事件对象  进行任务处理的重要数据结构。*/
 typedef struct aeEventLoop {
-    //最大文件描述符的值
+    //最大文件描述符的值[linux下，fd是是按一定规则递增的，当前fd的数量，不会大于maxfd，即fd数量小于等于maxfd]
     int maxfd;   /* highest file descriptor currently registered */
     //文件描述符的最大监听数
     int setsize; /* max number of file descriptors tracked  同时支持的连接数*/

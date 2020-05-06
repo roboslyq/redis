@@ -159,8 +159,9 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-
+/** 查找某个key对应的元素或者直接响应客户端 */
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
+    // 使用 c->db 对应的数据库进行查询，所以要求客户端必须针对某db进行操作，且不能跨库操作是原理决定
     robj *o = lookupKeyRead(c->db, key);
     if (!o) addReply(c,reply);
     return o;

@@ -173,22 +173,24 @@ void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
-
+/** get 命令*/
 int getGenericCommand(client *c) {
     robj *o;
-
+    // 如果没有找到，直接响应
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return C_OK;
-
+    // 检查找到的数据类型：找到对应的数据，但是类型不匹配，说明不能使用 get 命令，响应错误信息
     if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
     } else {
+        // 正常情况则直接响应
         addReplyBulk(c,o);
         return C_OK;
     }
 }
 
+/** get 命令*/
 void getCommand(client *c) {
     getGenericCommand(c);
 }

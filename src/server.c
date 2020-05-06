@@ -2130,26 +2130,34 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
-/**  */
+/**
+ * 阻塞前回调函数
+ * 1.从unblock_clients链表中拿client,将标志REDIS_UNBLOCKED去掉，然后处理其中的querybuf;
+ * 2.flush AOF文件，这个在aof的笔记中有提到。
+ * */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
     /* Handle precise timeouts of blocked clients. */
+    /** 处理超时的Client */
     handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
+    /**  */
     handleClientsWithPendingReadsUsingThreads();
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
     tlsProcessPendingData();
 
     /* If tls still has pending unread data don't sleep at all. */
+    /* 如果还有挂起未读的数据，则不进入超时，即epoll超时时间为0。需要结合整个ae事件流程来理解这里*/
     aeSetDontWait(server.el, tlsHasPendingData());
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
      * later in this function. */
+    /** 集群模式相关处理 */
     if (server.cluster_enabled) clusterBeforeSleep();
 
     /* Run a fast expire cycle (the called function will return
@@ -2190,12 +2198,14 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     trackingBroadcastInvalidationMessages();
 
     /* Write the AOF buffer on disk */
+    /**刷新AOF，将数据从buffer中写入在磁盘中*/
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
 
     /* Close clients that need to be closed asynchronous */
+    /** 异步关闭需要关闭的客户端*/
     freeClientsInAsyncFreeQueue();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -5326,7 +5336,7 @@ int main(int argc, char **argv) {
     //设置线程阻塞前/唤醒后回调函数
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
-    //=====> 创建eventloop: 主循环服务, 只有收到 stop 命令后，才会退出
+    /** =====> 创建eventloop: 主循环服务, 只有收到 stop 命令后，才会退出 */
     aeMain(server.el);
     // 释放循环事件库eventLoop
     aeDeleteEventLoop(server.el);
