@@ -1986,6 +1986,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Show information about connected clients */
+    /** 如果不是sentinel模式，每5秒钟打印一次客户端连接信息 */
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             serverLog(LL_DEBUG,
@@ -2001,12 +2002,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     clientsCron();
 
     /* Handle background operations on Redis databases. */
-    /** 异步的处理DB的backgroud相关操作*/
+    /** 异步的处理DB的backgroud相关操作：key过期清理、扩容、rehashing等任务*/
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
-    /** 异步完成 BGSAVE */
+    /** AOF重写：异步完成 BGSAVE */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled)
     {
@@ -2051,6 +2052,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
 
         /* Trigger an AOF rewrite if needed. */
+        /** 如果有必要，再次触发AOF重写 */
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
             server.aof_rewrite_perc &&
@@ -2069,12 +2071,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
+    /** AOF同步： 从缓冲区写入文件*/
     if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
 
     /* AOF write errors: in this case we have a buffer to flush as well and
      * clear the AOF error in case of success to make the DB writable again,
      * however to try every second is enough in case of 'hz' is set to
      * an higher frequency. */
+    /** 如果上一次flush失败，则每秒flush一次进行重试 */
     run_with_period(1000) {
         if (server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);

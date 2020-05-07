@@ -1398,6 +1398,9 @@ werr:
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
  * are inserted using a single command. */
+/**
+ * 重写AOF文件，AOF文件重写与原有的AOF文件无关，而是基于当前DB的内存状态来重写的
+ * */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp;
