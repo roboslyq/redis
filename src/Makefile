@@ -35,6 +35,7 @@ INSTALL=install
 PKG_CONFIG?=pkg-config
 
 # Default allocator defaults to Jemalloc if it's not an ARM
+# 默认参数
 MALLOC=libc
 ifneq ($(uname_M),armv6l)
 ifneq ($(uname_M),armv7l)
@@ -54,6 +55,7 @@ endif
 endif
 
 # Backwards compatibility for selecting an allocator
+# 判断使用的MALLOC
 ifeq ($(USE_TCMALLOC),yes)
 	MALLOC=tcmalloc
 endif

@@ -1,8 +1,8 @@
 #CMake最低版本要求
 cmake_minimum_required(VERSION 3.13)
 
-#项目信息
-#project (Redis-4.0.1)
+#项目信息（不稳定版，应该对应6.0版本）
+#project (Redis-unstable)
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -pedantic -DREDIS_STATIC=''")

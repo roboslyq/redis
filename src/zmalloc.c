@@ -1,5 +1,5 @@
 /* zmalloc - total amount of allocated memory aware version of malloc()
- *
+ *  感知由malloc()分配的内存数量：即可以精确的统计由Malloc分配的内存
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
@@ -45,7 +45,16 @@ void zlibc_free(void *ptr) {
 #include "config.h"
 #include "zmalloc.h"
 #include "atomicvar.h"
-
+/**
+ * 1、从下面定义可知，在zmalloc函数中，实际可能会每次多申请一个 PREFIX_SIZE的空间。如果定义了宏HAVE_MALLOC_SIZE，那么
+ *      PREFIX_SIZE的长度为0。其他的情况下，都会多分配至少8(sizeof(long long)或sizeof(size_t))字节的长度的内存空间。
+ * 原因： tcmalloc 和 Mac平台下的 malloc 函数族提供了计算已分配空间大小的函数（分别是tcmallocsize和mallocsize），
+ *      所以就不需要单独分配一段空间记录大小了。
+ *      而针对linux和sun平台则要记录分配空间大小。
+ *      对于linux，使用sizeof(sizet)定长字段记录；
+ *      对于sun os，使用sizeof(long long)定长字段记录。
+ *      因此当宏HAVE_MALLOC_SIZE没有被定义的时候，就需要在多分配出的空间内记录下当前申请的内存空间的大小。
+ */
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
@@ -70,22 +79,39 @@ void zlibc_free(void *ptr) {
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
-
+/**
+ * 2、分配内存，同时修改used_memory
+ *  因为sizeof(long) == 8 [64位系统中]，所以其实第一个if的代码等价于if(_n&7) _n += 8 - (_n&7);
+ *  这段代码就是判断分配的内存空间的大小是不是8的倍数。
+ *  如果内存大小不是8的倍数，就加上相应的偏移量使之变成8的倍数。_n&7 在功能上等价于 _n%8，不过位操作的效率显然更高。
+ *  7 = 0b0111,8 = 0b1000 所以8的余数刚好是后面三位。通过与0b0111与运算
+ *  2、atomicIncr是线程安全的
+ *  3、旧版本代码，没有使用atomicIncr，而是通过变量zmalloc_thread_safe判断
+ *      if (zmalloc_thread_safe) { \
+            update_zmalloc_stat_add(_n); \
+        } else { \
+            used_memory += _n; \
+        } \
+ */
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicIncr(used_memory,__n); \
 } while(0)
-
+/**
+ * 释放内存，同时修改used_memory
+ */
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicDecr(used_memory,__n); \
 } while(0)
 
+/** 全局统计已经分配内存数量 */
 static size_t used_memory = 0;
+//互斥变量
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
-
+//OOM异常处理
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
@@ -95,16 +121,26 @@ static void zmalloc_default_oom(size_t size) {
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
+/**
+ * 分配内存
+ * @param size
+ * @return
+ */
 void *zmalloc(size_t size) {
+    //系统调用malloc()分配内存
     void *ptr = malloc(size+PREFIX_SIZE);
-
+    //分配异常处理
     if (!ptr) zmalloc_oom_handler(size);
+    // 系统是否可以使用”malloc_size“函数？
 #ifdef HAVE_MALLOC_SIZE
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 #else
+    // 在数据域保存分配数据的实际大小；
     *((size_t*)ptr) = size;
+    // 计算对齐后的内存使用大小，并更新”used_memory“变量；
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
+    // 返回数据体的初始位置；
     return (char*)ptr+PREFIX_SIZE;
 #endif
 }
@@ -126,7 +162,13 @@ void zfree_no_tcache(void *ptr) {
     dallocx(ptr, MALLOCX_TCACHE_NONE);
 }
 #endif
-
+/**
+ * zcalloc 函数与zmalloc函数的功能基本相同，但有2点不同的是:
+ * 分配的空间大小是 size * nmemb。;
+ * calloc()会对分配的空间做初始化工作（初始化为0），而malloc()不会。
+ * @param size
+ * @return
+ */
 void *zcalloc(size_t size) {
     void *ptr = calloc(1, size+PREFIX_SIZE);
 
@@ -140,7 +182,12 @@ void *zcalloc(size_t size) {
     return (char*)ptr+PREFIX_SIZE;
 #endif
 }
-
+/**
+ * zrealloc 函数用来修改内存大小。具体的流程基本是分配新的内存大小，然后把老的内存数据拷贝过去，之后释放原有的内存。
+ * @param ptr
+ * @param size
+ * @return
+ */
 void *zrealloc(void *ptr, size_t size) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
@@ -176,7 +223,10 @@ void *zrealloc(void *ptr, size_t size) {
 
 /* Provide zmalloc_size() for systems where this function is not provided by
  * malloc itself, given that in that case we store a header with this
- * information as the first bytes of every allocation. */
+ * information as the first bytes of every allocation.
+ * jemalloc tcmalloc 或者apple系统下，都提供了检测内存块大小的函数，因此 zmalloc_size就使用相应的库函数，不依赖于此处的实现。
+ * 如果默认使用libc的话则 zmalloc_size函数有以下的定义
+ * */
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
@@ -190,7 +240,10 @@ size_t zmalloc_usable(void *ptr) {
     return zmalloc_size(ptr)-PREFIX_SIZE;
 }
 #endif
-
+/**
+ * 资源回收：根据用的库不相同，回收的时候也采用了不同的方法
+ * @param ptr
+ */
 void zfree(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
@@ -202,6 +255,14 @@ void zfree(void *ptr) {
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
+    /**
+     * 没有定义HAVE_MALLOC_SIZE(即系统不支持记录分配内存大小) 要将ptr指针向前偏移8个字节的长度，回退到最初malloc返回的地址，
+     * 然后通过类型转换再取指针所指向的值。
+     * 通过zmalloc()函数的分析，可知这里存储着我们最初需要分配的内存大小（zmalloc中的size），这里赋值给oldsize。
+     * update_zmalloc_stat_free()也是一个宏函数，和zmalloc中update_zmalloc_stat_alloc()大致相同，
+     *      唯一不同之处是前者在给变量used_memory减去分配的空间，而后者是加上该空间大小。
+     *      最后free(realptr)，清除空间
+     */
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
@@ -321,6 +382,12 @@ size_t zmalloc_get_rss(void) {
      *
      * Fragmentation will appear to be always 1 (no fragmentation)
      * of course... */
+    /**
+     * 这个函数可以获取当前进程实际所驻留在内存中的空间大小，即不包括被交换（swap）出去的空间。
+     * 该函数大致的操作就是在当前进程的 /proc/stat 【表示当前进程id】文件中进行检索。
+     * 该文件的第24个字段是RSS的信息，它的单位是pages（内存页的数目)。
+     * 如果没从操作系统的层面获取驻留内存大小，那就只能绌劣的返回已经分配出去的内存大小。
+     */
     return zmalloc_used_memory();
 }
 #endif

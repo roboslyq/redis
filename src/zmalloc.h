@@ -1,7 +1,8 @@
 /* zmalloc - total amount of allocated memory aware version of malloc()
- * malloc()本身能够保证所分配的内存是8字节对齐的：如果你要分配的内存不是8的倍数，那么malloc就会多分配一点，来凑成8的倍数。
- * 所以update_zmalloc_stat_alloc函数（或者说zmalloc()相对malloc()而言）真正要实现的功能并不是进行8字节对齐（malloc已经保证了），
- * 它的真正目的是使变量used_memory精确的维护实际已分配内存的大小。
+ *  1、malloc()本身能够保证所分配的内存是8字节对齐的：如果你要分配的内存不是8的倍数，那么malloc就会多分配一点，来凑成8的倍数。
+ *      所以update_zmalloc_stat_alloc函数（或者说zmalloc()相对malloc()而言）真正要实现的功能并不是进行8字节对齐（malloc已经保证了），
+ *      它的真正目的是使变量used_memory精确的维护实际已分配内存的大小。
+ *  2、感知由malloc()分配的内存数量：即可以精确的统计由Malloc分配的内存
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
@@ -42,7 +43,14 @@
 /* Double expansion needed for stringification of macro values. */
 #define __xstr(s) __str(s)
 #define __str(s) #s
-/**  默认先判断TCMALLOC */
+/**
+ * 1、编译时选择malloc： 默认先判断TCMALLOC
+ * 2、由USE_TCMALLOC、USE_JEMALLOC和__APPLE__控制使用哪种malloc。而这三个常量在Makefile中定义。
+ *     以redis-server为例，使用TCMalloc优化redis只需：make USE_TCMALLOC=yes
+ * 3、操作系统不同，提供的内存分配接口不同(主要是系统有没有记录已经分配内存大小，如果有就直接使用系统接口，如果没有就需要redis自己实现记录)
+ *   具体情况是：jemalloc ，tcmalloc 或者apple系统下，都提供了检测内存块大小的函数，因此 zmalloc_size就使用相应的库函数。
+ *             如果默认使用libc的话则 zmalloc_size函数有以下的定义
+ * */
 #if defined(USE_TCMALLOC)
 #define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
 #include <google/tcmalloc.h>
@@ -80,6 +88,10 @@
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
  * and the version used is our special version modified for Redis having
  * the ability to return per-allocation fragmentation hints. */
+/**
+ * 当我们使用Jemalloc进行内存分配时，我们就有能力进行内存的碎片整理，
+ * 并且关于Jemalloc的版本，我们已经专门为redis作了修改，使其可以对每次分配进行碎片提示。
+ * */
 #if defined(USE_JEMALLOC) && defined(JEMALLOC_FRAG_HINT)
 #define HAVE_DEFRAG
 #endif
@@ -91,7 +103,7 @@ void zfree(void *ptr); /* 释放空间方法，并更新used_memory的值 */
 char *zstrdup(const char *s);  /* 字符串复制方法 */
 size_t zmalloc_used_memory(void);/* 获取当前已经占用的内存大小 */
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));/* 可自定义设置内存溢出的处理方法 */
-size_t zmalloc_get_rss(void);
+size_t zmalloc_get_rss(void);/* Resident Set Size 实际使用物理内存（包含共享库占用的内存） */
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident);
 void set_jemalloc_bg_thread(int enable);
 int jemalloc_purge();
