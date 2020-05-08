@@ -33,7 +33,11 @@
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
-
+/**
+ * redis通讯协议：
+ * networking库是redis网络通讯协议的具体实现，主要包括如何建立和客户端的链接，并且接收其命令，返回数据给客户端。
+ * 即client连接的管理，解析client的请求，发送回复内容给client。
+ * */
 static void setProtocolError(const char *errstr, client *c);
 /** 加入多线程IO处理*/
 int postponeClientRead(client *c);
@@ -85,7 +89,9 @@ void linkClient(client *c) {
     uint64_t id = htonu64(c->id);
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
-/** 客户端创建，很关键，设置了相关的事件处理handler */
+/**
+ * 与客户端连接的第1步：建立连接，并创建客户端对象，很关键，设置了相关的事件处理handler
+ * */
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -95,7 +101,7 @@ client *createClient(connection *conn) {
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
         connNonBlock(conn);             //设置非阻塞
-        connEnableTcpNoDelay(conn);     //设置TCP无延迟
+        connEnableTcpNoDelay(conn);     //设置TCP无延迟，即禁用 Nagle 算法
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);//TCP keepalive属性
         /**
@@ -104,16 +110,18 @@ client *createClient(connection *conn) {
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
-    //默认设置客户端的数据库为第0个
+    /** 默认设置客户端的数据库为第0个
+     *  很关键，客户端调用select xx命令，即最终是能过改变这个值而实现的。
+     * */
     selectDb(c,0);
     uint64_t client_id = ++server.next_client_id;
     c->id = client_id;
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->bufpos = 0;
+    c->bufpos = 0;                  // 回复缓冲区的偏移量
     c->qb_pos = 0;
-    c->querybuf = sdsempty();
+    c->querybuf = sdsempty();       // 查询缓冲区
     c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -154,7 +162,9 @@ client *createClient(connection *conn) {
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
+    // 进行事务时监视的键
     c->watched_keys = listCreate();
+    // 订阅的频道和模式
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
@@ -168,7 +178,9 @@ client *createClient(connection *conn) {
     c->auth_module = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
+    // 如果不是伪客户端，那么添加到服务器的客户端链表中
     if (conn) linkClient(c);
+    // 初始化客户端的事务状态
     initClientMultiState(c);
     return c;
 }
@@ -201,15 +213,20 @@ void clientInstallWriteHandler(client *c) {
 
 /* This function is called every time we are going to transmit new data
  * to the client. The behavior is the following:
- *
+ * 这个函数在每次向客户端发送数据时都会被调用。函数的行为如下：
  * If the client should receive new data (normal clients will) the function
  * returns C_OK, and make sure to install the write handler in our event
  * loop so that when the socket is writable new data gets written.
- *
+ * 当客户端可以接收新数据时（通常情况下都是这样），函数返回 REDIS_OK ，
+ * 并将写处理器（write handler）安装到事件循环中，
+ * 这样当套接字可写时，新数据就会被写入。
  * If the client should not receive new data, because it is a fake client
  * (used to load AOF in memory), a master or because the setup of the write
  * handler failed, the function returns C_ERR.
- *
+ *对于那些不应该接收新数据的客户端，
+ * 比如伪客户端、 master 以及 未 ONLINE 的 slave ，
+ * 或者写处理器安装失败时，
+ * 函数返回 REDIS_ERR 。
  * The function may return C_OK without actually installing the write
  * event handler in the following cases:
  *
@@ -220,24 +237,31 @@ void clientInstallWriteHandler(client *c) {
  *
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns C_ERR no
- * data should be appended to the output buffers. */
+ * data should be appended to the output buffers.
+ * 通常在每个回复被创建时调用，如果函数返回 REDIS_ERR ，
+ * 那么没有数据会被追加到输出缓冲区
+ * */
 int prepareClientToWrite(client *c) {
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
+    // LUA 脚本环境所使用的伪客户端总是可写的
     if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
 
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
+    // 客户端是主服务器并且不接受查询，
+    // 那么它是不可写的，出错
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return C_ERR;
-
+    // 无连接的伪客户端总是不可写的
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket, unless
      * it should already be setup to do so (it has already pending data). */
+    // TODO 一般情况，为客户端套接字安装写处理器到事件循环
     if (!clientHasPendingReplies(c)) clientInstallWriteHandler(c);
 
     /* Authorize the caller to queue in the output buffer of this client. */
@@ -247,28 +271,41 @@ int prepareClientToWrite(client *c) {
 /* -----------------------------------------------------------------------------
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
-
+/**
+ * 写入缓冲区
+ * 尝试将回复添加到 c->buf 中
+ * */
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
-
+    // 正准备关闭客户端，无须再发送内容
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
+    // 回复链表里已经有内容，再添加内容到 c->buf 里就报异常
     if (listLength(c->reply) > 0) return C_ERR;
 
     /* Check that the buffer has enough space available for this string. */
+    // 空间必须满足
     if (len > available) return C_ERR;
 
+    // 复制内容到 c->buf 里面
     memcpy(c->buf+c->bufpos,s,len);
     c->bufpos+=len;
     return C_OK;
 }
-
+/**
+ * 将回复对象（一个 SDS ）添加到 c->reply 回复链表中
+ * @param c
+ * @param s
+ * @param len
+ */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
+    // 客户端即将被关闭，无须再发送回复
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     listNode *ln = listLast(c->reply);
+    // 取出表尾的 SDS
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, becuase when
@@ -276,11 +313,14 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
      * fo fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
+    // 如果表尾 SDS 的已用空间加上对象的长度，小于 REDIS_REPLY_CHUNK_BYTES
+    // 那么将新对象的内容拼接到表尾 SDS 的末尾
     if (tail) {
         /* Copy the part we can fit into the tail, and leave the rest for a
          * new node */
         size_t avail = tail->size - tail->used;
         size_t copy = avail >= len? len: avail;
+        // 拼接
         memcpy(tail->buf + tail->used, s, copy);
         tail->used += copy;
         s += copy;
@@ -298,6 +338,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
     }
+    // 检查回复缓冲区的大小，如果超过系统限制的话，那么关闭客户端
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
@@ -328,6 +369,9 @@ void addReply(client *c, robj *obj) {
 
 /* Add the SDS 's' string to the client output buffer, as a side effect
  * the SDS string is freed. */
+/*
+ * 将 SDS 中的内容复制到回复缓冲区
+ */
 void addReplySds(client *c, sds s) {
     if (prepareClientToWrite(c) != C_OK) {
         /* The caller expects the sds to be free'd. */
@@ -1254,7 +1298,8 @@ int writeToClient(client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
     clientReplyBlock *o;
-
+    // 一直循环，直到回复缓冲区为空
+    // 或者指定条件满足为止
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = connWrite(c->conn,c->buf+c->sentlen,c->bufpos-c->sentlen);
@@ -1347,6 +1392,10 @@ int writeToClient(client *c, int handler_installed) {
 }
 
 /* Write event handler. Just send data to the client. */
+
+/*
+ * 负责传送命令回复的写处理器
+ */
 void sendReplyToClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     writeToClient(c,1);
@@ -1356,6 +1405,10 @@ void sendReplyToClient(connection *conn) {
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
+/**
+ * redis都是先将回复内容写到缓冲(client->buf和client->replu),然后handleClientsWithPendingWrite将缓冲区中的回复发送给client。
+ * @return
+ */
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
@@ -1461,6 +1514,12 @@ void unprotectClient(client *c) {
  * have a well formed command. The function also returns C_ERR when there is
  * a protocol error: in such a case the client structure is setup to reply
  * with the error and close the connection. */
+/**
+ * 内联命令没有了统一请求协议中的 "*" 项来声明参数的数量，所以在输入命令的时候， 必须使用空格来分割各个参数， 服务器在接收到数据之后，会按空格对用户的输入进行
+ * 分析（parse）, 并获取其中的命令参数。
+ * @param c
+ * @return
+ */
 int processInlineBuffer(client *c) {
     char *newline;
     int argc, j, linefeed_chars = 1;
@@ -1559,6 +1618,11 @@ static void setProtocolError(const char *errstr, client *c) {
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
+/**
+ * 解析统一的请求协议的命令
+ * @param c
+ * @return
+ */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int ok;
@@ -1846,6 +1910,7 @@ void processInputBufferAndReplicate(client *c) {
 }
 /** 从客户端读取指令*/
 void readQueryFromClient(connection *conn) {
+    //获取conn对应的客户端c
     client *c = connGetPrivateData(conn);
     // nread:客户端发送过来的字节长度，例如"set a b"命令nread =27,因为redis协议编码后为：
     // "* 3  \r  \n  $ 3 \r \n set \r \n $ 1 \r \n a \r \n $ 1 \r \n b \r \n"
@@ -1858,6 +1923,7 @@ void readQueryFromClient(connection *conn) {
     if (postponeClientRead(c)) return;
 
     // 如果没有启用多线程模型，则走下面继续处理读逻辑
+    // 读入长度（默认为 16 MB）
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -1874,13 +1940,16 @@ void readQueryFromClient(connection *conn) {
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
-
+    // 获取当前客户端c的查询缓冲区当前内容的长度
+    // 如果读取出现 short read (TCP拆包/解包)，那么可能会有内容滞留在读取缓冲区里面,这些滞留内容也许不能完整构成一个符合协议的命令，
     qblen = sdslen(c->querybuf);
+    // 如果有需要，更新缓冲区内容长度的峰值（peak）
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    //1、申请空间
+    //1、申请空间：为查询缓冲区分配空间
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    //2、读请求
+    //2、读入内容到查询缓存（注意，此时会产生short read）
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
+    // 读入出错
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -1889,7 +1958,7 @@ void readQueryFromClient(connection *conn) {
             freeClientAsync(c);
             return;
         }
-    } else if (nread == 0) {
+    } else if (nread == 0) {// 遇到 EOF
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClientAsync(c);
         return;
@@ -1900,11 +1969,14 @@ void readQueryFromClient(connection *conn) {
         c->pending_querybuf = sdscatlen(c->pending_querybuf,
                                         c->querybuf+qblen,nread);
     }
-
+    // 根据内容，更新查询缓冲区（SDS） free 和 len 属性并将 '\0' 正确地放到内容的最后
     sdsIncrLen(c->querybuf,nread);
+    // 记录服务器和客户端最后一次互动的时间
     c->lastinteraction = server.unixtime;
+    // 如果客户端是 master 的话，更新它的复制偏移量
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     server.stat_net_input_bytes += nread;
+    // 查询缓冲区长度超出服务器最大缓冲区长度，清空缓冲区并释放客户端
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -1918,7 +1990,7 @@ void readQueryFromClient(connection *conn) {
 
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
-    //====>处理命令
+    // ====>处理命令：从查询缓存重读取内容，创建参数，并执行命令函数会执行到缓存中的所有内容都被处理完为止
      processInputBufferAndReplicate(c);
 }
 
@@ -2713,6 +2785,8 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
  * output buffers without returning control to the event loop.
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
+/* 当Client中的输出buffer数据渐渐变多了的时候就要准备持久化到磁盘文件。
+ * 从方法将会在freeMemoryIfNeeded()，释放内存空间函数，将存在内存中数据操作结果刷新到磁盘中 */
 void flushSlavesOutputBuffers(void) {
     listIter li;
     listNode *ln;
@@ -2995,7 +3069,9 @@ int stopThreadedIOIfNeeded(void) {
         return 0;
     }
 }
-
+/**
+ * 调用handleClientsWithPendingWrites将缓冲区中的回复发送给client。
+ */
 int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */

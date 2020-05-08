@@ -69,7 +69,7 @@ typedef struct ConnectionType {
  * 客户端与服务端连接抽象，读写数据均由connection完成
  */
 struct connection {
-    ConnectionType *type;
+    ConnectionType *type;  //TCP默认实现是CT_Socket
     ConnectionState state;
     short int flags;
     short int refs;
@@ -139,12 +139,14 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
 }
 
 /* Read from the connection, behaves the same as read(2).
- * 
+ *  从connection中读取数据，与read(2)函数类似。
  * Like read(2), a short read is possible.  A return value of 0 will indicate the
  * connection was closed, and -1 will indicate an error.
- *
+ * 与read(2)函数一样，此处也可能会产生short read。
+ * 如果返回0表示connection已经关闭，-1表示产生了错误
  * The caller should NOT rely on errno. Testing for an EAGAIN-like condition, use
  * connGetState() to see if the connection state is still CONN_STATE_CONNECTED.
+ * 这个调用的成功与否不应该依赖于返回的errno，而应该先通过connGetState()先判断conn是否可用。
  */
 static inline int connRead(connection *conn, void *buf, size_t buf_len) {
     return conn->type->read(conn, buf, buf_len);

@@ -1,5 +1,6 @@
 /* String -> String Map data structure optimized for size.
- *
+ *  1、hashtable实现中，Redis引入了zipmap数据结构，保证在hashtable刚创建以及元素较少时，用更少的内存来存储，同时对查询的效率也不会受太大的影响。
+　　2、zipmap本质是一个字符数组。利用字符串实现了简单的hash表，来存储少量key-value对。
  * See zipmap.c for more info.
  *
  * --------------------------------------------------------------------------
