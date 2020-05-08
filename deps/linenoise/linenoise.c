@@ -1071,9 +1071,10 @@ char *linenoise(const char *prompt) {
         return linenoiseNoTTY();
     } else if (isUnsupportedTerm()) {
         size_t len;
-
+        //在界面打印参数
         printf("%s",prompt);
         fflush(stdout);
+        // 阻塞：读取用户输入的命令
         if (fgets(buf,LINENOISE_MAX_LINE,stdin) == NULL) return NULL;
         len = strlen(buf);
         while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {

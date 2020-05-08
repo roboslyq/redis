@@ -266,7 +266,9 @@ typedef long long ustime_t; /* microsecond time type. */
 #define BLOCKED_NUM 6     /* Number of blocked states. */
 
 /* Client request types */
+//普通命令
 #define PROTO_REQ_INLINE 1
+//管道命令
 #define PROTO_REQ_MULTIBULK 2
 
 /* Client classes for client limits, currently used only for

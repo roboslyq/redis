@@ -854,6 +854,7 @@ static int cliSwitchProto(void) {
  *      CC_FORCE: The connection is performed even if there is already
  *                a connected socket.
  *      CC_QUIET: Don't print errors if connection fails. */
+/** 连接到服务端 */
 static int cliConnect(int flags) {
     if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
@@ -1900,7 +1901,9 @@ void cliLoadPreferences(void) {
     }
     sdsfree(rcfile);
 }
-
+/**
+ * redils-cli主循环体
+ */
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -1914,6 +1917,7 @@ static void repl(void) {
     cliIntegrateHelp();
 
     config.interactive = 1;
+    //linenoise界面框架
     linenoiseSetMultiLine(1);
     linenoiseSetCompletionCallback(completionCallback);
     linenoiseSetHintsCallback(hintsCallback);
@@ -1931,12 +1935,16 @@ static void repl(void) {
     }
 
     cliRefreshPrompt();
+    /**
+     * 核心循环主体
+     */
+     //阻塞
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             long repeat = 1;
             int skipargs = 0;
             char *endptr = NULL;
-
+            //拆解参数
             argv = cliSplitArgs(line,&argc);
 
             /* check if we have a repeat command option and
@@ -8051,13 +8059,20 @@ int main(int argc, char **argv) {
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
 
     /* Start interactive mode when no command is provided */
+    /** 如果启动客户端时，没有提供任务命令，则默认进入reply模式 ：交互式模式，即最常见的模式，输入命令进行查询*/
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
+        /*
+         * 注意：在repl模式下，我们不会因为connection异常而终止程序
+         * 每个命令都会做一些新的尝试
+         * */
+        //连接服务器端，并发出一些测试命令
         cliConnect(0);
+        //主循环体
         repl();
     }
 

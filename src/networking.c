@@ -1801,6 +1801,9 @@ int processCommandAndResetClient(client *c) {
  * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
+    // querybuf 的初始值是 "PING\r\nPING\r\nPING\r\n"
+    // 每经过一次 processInlineBuffer(c)，减少一个 PING
+    // "PING\r\nPING\r\nPING\r\n" -> "PING\r\nPING\r\n" -> "PING\r\n" -> ""
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
@@ -1826,6 +1829,7 @@ void processInputBuffer(client *c) {
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
+        // 普通命令以 * 开头，请求类型为 PROTO_REQ_MULTIBULK，管道命令类型为 PROTO_REQ_INLINE
         if (!c->reqtype) {
             if (c->querybuf[c->qb_pos] == '*') {
                 c->reqtype = PROTO_REQ_MULTIBULK;
@@ -1889,7 +1893,7 @@ void processInputBuffer(client *c) {
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
     if (!(c->flags & CLIENT_MASTER)) {
-        /** 处理命令 */
+        /** 处理客户端输入缓冲区*/
         processInputBuffer(c);
     } else {
         /* If the client is a master we need to compute the difference
@@ -1931,13 +1935,25 @@ void readQueryFromClient(connection *conn) {
      * at the risk of requiring more read(2) calls. This way the function
      * processMultiBulkBuffer() can avoid copying buffers to create the
      * Redis Object representing the argument. */
-    if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
-        && c->bulklen >= PROTO_MBULK_BIG_ARG)
+    //multibulklen表示待读取的参数的个数
+    //bulklen 表示当前参数的长度
+    //客户端为 redis-cli
+    //如果还有待读取的bulk（参数）,并且上次读取的最后一个参数的数据不完整，
+    //并且上次读取的最后一个参数大于等于PROTO_MUBULK_BIG_ARG
+    if (c->reqtype == PROTO_REQ_MULTIBULK
+        && c->multibulklen
+        && c->bulklen != -1
+        && c->bulklen >= PROTO_MBULK_BIG_ARG
+        )
     {
+        //待读取的数据长度
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
+        //确定该次读取的数据长度
+        //如果大于PROTO_IOBUF_LEN,则读取PROTO_IOBUF_LEN
+        //否则读取全部剩余的数据
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
     // 获取当前客户端c的查询缓冲区当前内容的长度
@@ -1966,6 +1982,7 @@ void readQueryFromClient(connection *conn) {
         /* Append the query buffer to the pending (not applied) buffer
          * of the master. We'll use this buffer later in order to have a
          * copy of the string applied by the last command executed. */
+        //将读取的数据追加到pending_querbuf末尾
         c->pending_querybuf = sdscatlen(c->pending_querybuf,
                                         c->querybuf+qblen,nread);
     }
