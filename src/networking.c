@@ -1774,6 +1774,7 @@ int processCommandAndResetClient(client *c) {
     if (processCommand(c) == C_OK) {
         if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
             /* Update the applied replication offset of our master. */
+            // 如果是master的client发来的命令，则 更新 reploff
             c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
         }
 
@@ -1781,6 +1782,7 @@ int processCommandAndResetClient(client *c) {
          * module blocking command, so that the reply callback will
          * still be able to access the client argv and argc field.
          * The client will be reset in unblockClientFromModule(). */
+        // 如果不是阻塞状态，则重置client，可以接受下一个命令
         if (!(c->flags & CLIENT_BLOCKED) ||
             c->btype != BLOCKED_MODULE)
         {
@@ -1802,9 +1804,10 @@ int processCommandAndResetClient(client *c) {
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     // querybuf 的初始值是 "PING\r\nPING\r\nPING\r\n"
-    // 每经过一次 processInlineBuffer(c)，减少一个 PING
-    // "PING\r\nPING\r\nPING\r\n" -> "PING\r\nPING\r\n" -> "PING\r\n" -> ""
+    // 每经过一次 processInlineBuffer(c)，减少一个 PING "PING\r\nPING\r\nPING\r\n" -> "PING\r\nPING\r\n" -> "PING\r\n" -> ""
+    /* 当缓冲区中还有数据时就一直处理 */
     while(c->qb_pos < sdslen(c->querybuf)) {
+        // 处理 client 的各种状态
         /* Return if clients are paused. */
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
 
@@ -1829,6 +1832,7 @@ void processInputBuffer(client *c) {
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
+        /* 判断命令请求类型 telnet发送的命令和redis-cli发送的命令请求格式不同 */
         // 普通命令以 * 开头，请求类型为 PROTO_REQ_MULTIBULK，管道命令类型为 PROTO_REQ_INLINE
         if (!c->reqtype) {
             if (c->querybuf[c->qb_pos] == '*') {
@@ -1837,7 +1841,9 @@ void processInputBuffer(client *c) {
                 c->reqtype = PROTO_REQ_INLINE;
             }
         }
-
+        /**
+          * 从缓冲区解析命令scrapy_redis
+          */
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
             /* If the Gopher mode and we got zero or one argument, process
@@ -1858,6 +1864,7 @@ void processInputBuffer(client *c) {
         }
 
         /* Multibulk processing could see a <= 0 length. */
+        /* 参数个数为0时重置client，可以接受下一个命令 */
         if (c->argc == 0) {
             resetClient(c);
         } else {
@@ -1892,6 +1899,7 @@ void processInputBuffer(client *c) {
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
+    //如果不是master
     if (!(c->flags & CLIENT_MASTER)) {
         /** 处理客户端输入缓冲区*/
         processInputBuffer(c);
@@ -1904,6 +1912,7 @@ void processInputBufferAndReplicate(client *c) {
          * sub-replicas and to the replication backlog. */
         size_t prev_offset = c->reploff;
         processInputBuffer(c);
+        // TODO 判断是否同步偏移量发生变化，则通知到后续的slave
         size_t applied = c->reploff - prev_offset;
         if (applied) {
             replicationFeedSlavesFromMasterStream(server.slaves,
@@ -1974,7 +1983,7 @@ void readQueryFromClient(connection *conn) {
             freeClientAsync(c);
             return;
         }
-    } else if (nread == 0) {// 遇到 EOF
+    } else if (nread == 0) {// 遇到 EOF（end of file）
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClientAsync(c);
         return;
@@ -1983,6 +1992,8 @@ void readQueryFromClient(connection *conn) {
          * of the master. We'll use this buffer later in order to have a
          * copy of the string applied by the last command executed. */
         //将读取的数据追加到pending_querbuf末尾
+//       当这个client代表主从的master节点时，将query buffer和 pending_querybuf结合
+//      TODO 用于主从复制中的命令传播？？？？
         c->pending_querybuf = sdscatlen(c->pending_querybuf,
                                         c->querybuf+qblen,nread);
     }

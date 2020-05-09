@@ -3352,8 +3352,15 @@ void preventCommandReplication(client *c) {
  * preventCommandReplication(client *c);
  *
  */
-/** 调用具体处理指令，比如t_string.c ->setCommand  */
+/** 调用具体处理指令，比如t_string.c ->setCommand
+ *
+ * 如果有监视器 monitor，则需要将命令发送给监视器。调用 redisCommand 的proc 方法，执行对应具体的命令逻辑。
+ * 如果开启了 CMD_CALL_SLOWLOG，则需要记录慢查询日志
+ * 如果开启了 CMD_CALL_STATS，则需要记录一些统计信息
+ * 如果开启了 CMD_CALL_PROPAGATE，则当 dirty大于0时，需要调用 propagate 方法来进行命令传播。
+ * */
 void call(client *c, int flags) {
+//  dirty记录数据库修改次数；start记录命令开始执行时间us；duration记录命令执行花费时间
     long long dirty;
     ustime_t start, duration;
     int client_old_flags = c->flags;
@@ -3532,6 +3539,28 @@ void call(client *c, int flags) {
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+/**
+ * 1、首先是调用 lookupCommand 方法获得对应的 redisCommand；
+ * 2、接着是检测当前 Redis 是否可以执行该命令；
+ * 3、最后是调用 call 方法真正执行命令。
+ *
+ *
+ * - 1 如果命令名称为 quit，则直接返回，并且设置客户端标志位。
+ * - 2 根据 argv[0] 查找对应的 redisCommand，所有的命令都存储在命令字典 redisCommandTable 中，根据命令名称可以获取对应的命令。
+ * - 3 进行用户权限校验。
+ * - 4 如果是集群模式，处理集群重定向。当命令发送者是 master 或者 命令没有任何 key 的参数时可以不重定向。
+ * - 5 预防 maxmemory 情况，先尝试回收一下，如果不行，则返回异常。
+ * - 6 当此服务器是 master 时：aof 持久化失败时，或上一次 bgsave 执行错误，且配置 bgsave 参数和 stop_writes_on_bgsave_err；禁止执行写命令。
+ * - 7 当此服务器时master时：如果配置了 repl_min_slaves_to_write，当slave数目小于时，禁止执行写命令。
+ * - 8 当时只读slave时，除了 master 的不接受其他写命令。
+ * - 9 当客户端正在订阅频道时，只会执行部分命令。
+ * - 10 服务器为slave，但是没有连接 master 时，只会执行带有 CMD_STALE 标志的命令，如 info 等
+ * - 11 正在加载数据库时，只会执行带有 CMD_LOADING 标志的命令，其余都会被拒绝。
+ * - 12 当服务器因为执行lua脚本阻塞时，只会执行部分命令，其余都会拒绝
+ * - 13 如果是事务命令，则开启事务，命令进入等待队列；否则直接执行命令。
+ * @param c
+ * @return
+ */
 int processCommand(client *c) {
     moduleCallCommandFilters(c);
 
@@ -3539,6 +3568,7 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
+//    - 1 如果命令名称为 quit，则直接返回，并且设置客户端标志位。
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;

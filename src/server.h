@@ -820,7 +820,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    uint64_t flags;         /* Client flags: CLIENT_* macros. */
+    uint64_t flags;         /* Client flags: CLIENT_* macros. 客户端类型,有好几十种,在server.h中定义*/
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
