@@ -161,6 +161,8 @@ static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc f
 
 /* Register a read handler, to be called when the connection is readable.
  * If NULL, the existing handler is removed.
+ * 给connection注册一个对应的Handler,如果handler为null,则connection将删除。
+ * Handler为null很重要，因为lua脚本执行超时后，将会传null来处理。
  */
 static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     // 此处Type为ConnectionType->CT_Socket，因此set_read_handler = connection->connSocketSetReadHandler

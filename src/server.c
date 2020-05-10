@@ -3778,6 +3778,7 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
+    /** lua脚本太慢，新的指令将会抛出异常：slowscripterr */
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != helloCommand &&
@@ -3801,7 +3802,7 @@ int processCommand(client *c) {
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
-    {
+    {   /** 事务command */
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {

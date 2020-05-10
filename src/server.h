@@ -402,10 +402,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CMD_CALL_NOWRAP (1<<4)  /* Don't wrap also propagate array into
                                    MULTI/EXEC: the caller will handle it.  */
 
-/* Command propagation flags, see propagate() function */
-#define PROPAGATE_NONE 0
-#define PROPAGATE_AOF 1
-#define PROPAGATE_REPL 2
+/* Command propagation(传播) flags, see propagate() function */
+#define PROPAGATE_NONE 0 //不传播
+#define PROPAGATE_AOF 1   //AOF处理
+#define PROPAGATE_REPL 2  //主从复制处理
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -1434,7 +1434,7 @@ struct redisServer {
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
-    /* Scripting */
+    /* Scripting lua脚本相关*/
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
     client *lua_caller;   /* The client running EVAL right now, or NULL */
@@ -1447,13 +1447,14 @@ struct redisServer {
                              execution of the current script. */
     int lua_random_dirty; /* True if a random command was called during the
                              execution of the current script. */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
+    int lua_replicate_commands; /* True if we are doing single commands repl. lua下开启命令复制模式，即不是向salve同步整个lua命令，而是lua中具体的
+                                 * 的一个个redis命令。这样就不会出现数据一致性问题
+                                 *      */
     int lua_multi_emitted;/* True if we already proagated MULTI. */
-    int lua_repl;         /* Script replication flags for redis.set_repl(). */
-    int lua_timedout;     /* True if we reached the time limit for script
-                             execution. */
-    int lua_kill;         /* Kill the script if true. */
-    int lua_always_replicate_commands; /* Default replication type. */
+    int lua_repl;         /* Script replication flags for redis.set_repl(). 复制模式*/
+    int lua_timedout;     /* True if we reached the time limit for script execution. lua超时*/
+    int lua_kill;         /* Kill the script if true. 杀死lua*/
+    int lua_always_replicate_commands; /* Default replication type. 默认是命令复制模式*/
     int lua_oom;          /* OOM detected when script start? */
     /* Lazy free */
     int lazyfree_lazy_eviction;

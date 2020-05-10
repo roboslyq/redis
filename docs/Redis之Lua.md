@@ -146,22 +146,242 @@ b）再看c怎么调用lua？
 
 一个用c写的程序，已经编译成二进制 <--> 用c写的lua解释器，已经编译成二进制 -> 一个lua写的程序，只能被解释器”被动“地读取，不能”主动“地执行
 
-## Clion中开发lua
-
-> 安装lua插件即可??
-
 # Redis中的Lua
 
 ## 集成原理 
 
+> 1、redis引入了Lua包，不需要独立安装Lua,详情见`deps/lua`路径下的源码，这个源码包就是lua的源码
+>
+> 2、redis对lua相关操作进行的封装，比如调用Lua,lua中调用redis中的指令，以及lua和redis的数据类型转换等。源码请见`scripting.c`文件
+
+## scriptiong.c源码简单分析
+
+> 这个源码文件很长，仅对其关键内容作简要解析
+
+### 预处理
+
+导入了Lua相关的头文件，这是标准的C中调用lua集成方式。
+
+```c
+#include "server.h"
+#include "sha1.h"
+#include "rand.h"
+#include "cluster.h"
+// 集成Lua
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+#include <ctype.h>
+#include <math.h>
+```
+
+### 源码结构
+
+```c
+//1、定义了一个ldbState结构体(LDB,LUA调试器相关??)
+struct ldbState {
+    connection *conn; /* Connection of the debugging client. */
+    int active; /* Are we debugging EVAL right now? */
+    int forked; /* Is this a fork()ed debugging session? */
+    list *logs; /* List of messages to send to the client. */
+    list *traces; /* Messages about Redis commands executed since last stop.*/
+    list *children; /* All forked debugging sessions pids. */
+    int bp[LDB_BREAKPOINTS_MAX]; /* An array of breakpoints line numbers. */
+    int bpcount; /* Number of valid entries inside bp. */
+    int step;   /* Stop at next line ragardless of breakpoints. */
+    int luabp;  /* Stop at next line because redis.breakpoint() was called. */
+    sds *src;   /* Lua script source code split by line. */
+    int lines;  /* Number of lines in 'src'. */
+    int currentline;    /* Current line number. */
+    sds cbuf;   /* Debugger client command buffer. */
+    size_t maxlen;  /* Max var dump / reply length. */
+    int maxlen_hint_sent; /* Did we already hint about "set maxlen"? */
+} ldb;
+
+/* ---------------------------------------------------------------------------
+ *2、定义了一些工具类 Utility functions.
+ * ------------------------------------------------------------------------- */
+/** sha1工具函数 */
+void sha1hex(char *digest, char *script, size_t len) {
+    ...
+}
+/* ---------------------------------------------------------------------------
+ * 3、redis相关类型转换为lua的类型
+   Redis reply to Lua type conversion functions.
+ * ------------------------------------------------------------------------- */
+char *redisProtocolToLuaType(lua_State *lua, char* reply) {
+... ...
+}
+char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {... ... }
+char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {... ...}
+...
+  /* ---------------------------------------------------------------------------
+ * 4、Lua相关类型转换为redis对应的类型
+ Lua reply to Redis reply conversion functions.
+ * ------------------------------------------------------------------------- */
+void luaReplyToRedisReply(client *c, lua_State *lua) {... ...}
+
+/* ---------------------------------------------------------------------------
+ * 5、Lua中可以使用的redis函数实现。即可以在Lua中，直接使用的redis函数
+ 	Lua redis.* functions implementations.
+ * ------------------------------------------------------------------------- */
+int luaRedisGenericCommand(lua_State *lua, int raise_error) {... ...}
+
+/* redis.call() */
+int luaRedisCallCommand(lua_State *lua) {
+    return luaRedisGenericCommand(lua,1);
+}
+
+/* redis.pcall() */
+int luaRedisPCallCommand(lua_State *lua) {
+    return luaRedisGenericCommand(lua,0);
+}
+... ...
+/* ---------------------------------------------------------------------------
+ * 6、Lua引擎初始化
+ 	Lua engine initialization and reset.
+ * ------------------------------------------------------------------------- */    
+/** lua引擎初始化 */
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
+  lua_pushcfunction(lua, luafunc);
+  lua_pushstring(lua, libname);
+  lua_call(lua, 1, 0);
+}
+
+LUALIB_API int (luaopen_cjson) (lua_State *L);
+LUALIB_API int (luaopen_struct) (lua_State *L);
+LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
+LUALIB_API int (luaopen_bit) (lua_State *L);
+
+void luaLoadLibraries(lua_State *lua) {
+    luaLoadLib(lua, "", luaopen_base);
+    luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
+    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
+    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    luaLoadLib(lua, "cjson", luaopen_cjson);
+    luaLoadLib(lua, "struct", luaopen_struct);
+    luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
+    luaLoadLib(lua, "bit", luaopen_bit);
+
+#if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
+    luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
+    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
+#endif
+}
+... ...
+ /* ---------------------------------------------------------------------------
+ * 7、EVAL 和SCRIPT命令实现
+ * EVAL and SCRIPT commands implementation
+ * ------------------------------------------------------------------------- */
+sds luaCreateFunction(client *c, lua_State *lua, robj *body) {}
+void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {}
+void prepareLuaClient(void) {}
+void evalGenericCommand(client *c, int evalsha) {}
+/**
+ * eval命令入口
+ * @param c
+ */
+void evalCommand(client *c) {}
+/**
+ * evalsha命令入口
+ * @param c
+ */
+void evalShaCommand(client *c) {}
+/**scripts  命令处理器*/
+void scriptCommand(client *c) {}
+/* ---------------------------------------------------------------------------
+ * 8、LDB LUA的调试器
+ * LDB: Redis Lua debugging facilities
+ * ------------------------------------------------------------------------- */
+```
+
 ## 使用方式
+
+### eval命令
+
+```sh
+127.0.0.1:6379> eval 'while(true) do print("hello") end' 0
+```
+
+> 注意，上述命令会一直死循环，在redis控制台，不断打印hello
+
+### redis-cli直接调用
+
+先将lua命令写到文件中，比如`D:\workspace_c\lua_demo.lua`
+
+```tiki wiki
+return redis.call('set',KEYS[1],ARGV[1])
+```
+
+然后使用redis-cli调用
+
+```sh
+C:\Users\robos>redis-cli --eval D:\workspace_c\lua_demo.lua foo , bar
+OK
+C:\Users\robos>
+```
+
+### evalsha调用
+
+> 先使用`script load`将命令，此时命令未执行，会返回一个长度为40(39 + ‘\0’)的sha结果。然后调用evalsha
+
+```shell
+127.0.0.1:6379> script load  'while(true) do print("hello") end'
+"d395649372f578b1a0d3a1dc1b2389717cadf403"
+127.0.0.1:6379> evalsha "d395649372f578b1a0d3a1dc1b2389717cadf403" 0
+```
+
+
+
+## Redis中Lua处理流程
+
+![lua12](./images/lua/12.jpg)
+
+> 以上所有操作均在一个单线程中完成，即redis的main线程中
+>
+> 1、Client-1发起一个eval指令，指令经过LUA处理后，正常完成，返回客户端，不会执行其它相关。此时Client-1正常接收Lua执行结果
+>
+> 2、如果Client-1执行的时间长(指令次数超过10000次)，则执行钩子函数(redis中)，此钩子函数会检查Lua是不是已经超过规定时长(sever.lua_time_limit)，如果是则更新server.lua_timedout为1。如果不是，则继续执行LUA脚本处理。如果已经超时，则会调起aeProcessEvents处理事件(会循环调用4次)。此时，虽然LUA脚本阻塞，但允许有机会处理其它事件。
+>
+> 3、在前提2中，如果Client-2主发起Set操作指令，即使前面有LUA脚本指令在执行导致阻塞，但因钩子函数luaMaskCountHook，仍有机会处理Client-2的事件。
+>
+> 此时，Client-2在指令处理方法processCommand()中会检查lua_timedout，如果是并且不是script kill，shutdown 等个别指令，直接响应异常"-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.“。即Client-2的指令不能正处理。
+>
+> 4、此时，Client-3可以正常连接，并且发起"script kill”或者 "shutdown nosave"，与Client-2原理一样，即使LUA脚本阻塞线程仍有机会处理。检测到是指令script kill，则将server.lua_kill 设置为1。此时，立刻响应客户端2。
+>
+> 5、当LUA继续调用钩子函数时，此时可以得到Client_3已经将server.lua_kill设置为1了，所以LUA会终止执行。此时，redis的eventLoop回归正常，不会阻塞。
 
 ## 常见应用场景 
 
+###　分布式锁
+
+
+
 # 参考资料
 
- https://www.cnblogs.com/wangchengfeng/p/3716821.html 
+ [解释型语言和编译型语言如何交互？以lua和c为例](https://www.cnblogs.com/wangchengfeng/p/3716821.html)
 
  https://blog.csdn.net/follow_blast/article/details/81735632 
 
  https://segmentfault.com/a/1190000022162774 
+
+https://www.cnblogs.com/bibi-feiniaoyuan/p/9448621.html
+
+https://blog.csdn.net/qq_41453285/article/details/103473400
+
+[redis中的lua(较详细)](https://my.oschina.net/floor/blog/1603116)
+
+[官方关于redis的lua的数据](https://redis.io/commands/eval) 
+
+[官方关于ldb调试的说明](https://redis.io/topics/ldb) 
+
+[极客学院的lua介绍](http://wiki.jikexueyuan.com/project/redis/lua.html)
+
+[importnew关于lua的介绍](http://www.importnew.com/24124.html)
+
+https://blog.csdn.net/qq_39954022/article/details/77866166
+
+[lua下主从复制](https://blog.csdn.net/li123128/article/details/102905891)
+
+[Redis脚本复制械](https://developer.aliyun.com/article/726409)

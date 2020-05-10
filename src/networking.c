@@ -41,6 +41,7 @@
 static void setProtocolError(const char *errstr, client *c);
 /** 加入多线程IO处理*/
 int postponeClientRead(client *c);
+/* 此参数主要是解决bug,具体bug见https://github.com/antirez/redis/issues/6988*/
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1492,6 +1493,7 @@ void resetClient(client *c) {
  *    error is signaled on the socket, freeing the client.
  * 2) Moreover it makes sure that if the client is freed in a different code
  *    path, it is not really released, but only marked for later release. */
+/** lua超时处理 */
 void protectClient(client *c) {
     c->flags |= CLIENT_PROTECTED;
     connSetReadHandler(c->conn,NULL);
@@ -2911,6 +2913,14 @@ int clientsArePaused(void) {
  * write, close sequence needed to serve a client.
  *
  * The function returns the total number of events processed. */
+/** 当主线程阻塞时，调用此方法，允许在阻塞的过程中执行少量的事件。
+ *  此时，是通过阻塞的线程的回调实现。比如lua脚本执行超时，通过回调，lua每隔一段时间就会回调scripting.c->luaMaskCountHook(lua_State *lua, lua_Debug *ar)
+ *  然后，在luaMaskCountHook中调用此方法processEventsWhileBlocked(void) ，让redis在阻塞时，也有能力处理 别事件。
+ *  比如 命令“script kill” "SHUTDOWN NOSAVE"等。从而可以终止Lua阻塞。
+ *  否则将永远无法响应。
+ *  同时，也可对在阻塞期间的命令（例如有客户端发起get a ）作出响应,
+ *  比如作出响应"BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE."
+ * */
 int processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
     int count = 0;
