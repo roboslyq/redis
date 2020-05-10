@@ -60,6 +60,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 /* Debugger shared state is stored inside this global structure. */
 #define LDB_BREAKPOINTS_MAX 64  /* Max number of breakpoints. */
 #define LDB_MAX_LEN_DEFAULT 256 /* Default len limit for replies / var dumps. */
+/** lua debbuger测试支持数据结构 */
 struct ldbState {
     connection *conn; /* Connection of the debugging client. */
     int active; /* Are we debugging EVAL right now? */
@@ -1015,7 +1016,10 @@ LUALIB_API int (luaopen_cjson) (lua_State *L);
 LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
 LUALIB_API int (luaopen_bit) (lua_State *L);
-
+/**
+ * 加载Lua相关库
+ * @param lua
+ */
 void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "", luaopen_base);
     luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
@@ -1092,9 +1096,11 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  * in order to reset the Lua scripting environment.
  *
  * However it is simpler to just call scriptingReset() that does just that. */
+/** 集成lua脚本*/
 void scriptingInit(int setup) {
+    //lua状态机
     lua_State *lua = lua_open();
-
+    //服务启动初始化Lua时，为1
     if (setup) {
         server.lua_client = NULL;
         server.lua_caller = NULL;
@@ -1109,12 +1115,12 @@ void scriptingInit(int setup) {
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
+    //通过key = sha1缓存脚本
     server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
     server.lua_scripts_mem = 0;
 
     /* Register the redis commands table and fields */
     lua_newtable(lua);
-
     /* redis.call */
     lua_pushstring(lua,"call");
     lua_pushcfunction(lua,luaRedisCallCommand);
@@ -1858,6 +1864,7 @@ NULL
  * ------------------------------------------------------------------------- */
 
 /* Initialize Lua debugger data structures. */
+/* 初始化lua的debugger结构 */
 void ldbInit(void) {
     ldb.conn = NULL;
     ldb.active = 0;

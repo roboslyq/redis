@@ -1439,7 +1439,7 @@ struct redisServer {
     client *lua_client;   /* The "fake client" to query Redis from Lua */
     client *lua_caller;   /* The client running EVAL right now, or NULL */
     char* lua_cur_script; /* SHA1 of the script currently running, or NULL */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
+    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts Lua脚本的sha1值*/
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
     mstime_t lua_time_limit;  /* Script timeout in milliseconds */
     mstime_t lua_time_start;  /* Start time of script, milliseconds time */
