@@ -285,7 +285,10 @@ void initConfigValues() {
         config->interface.init(config->data);
     }
 }
-
+/**
+ * 加载配置文件
+ * @param config
+ */
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -293,7 +296,7 @@ void loadServerConfigFromString(char *config) {
     sds *lines;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
-
+    /** 循环处理配置文件中的每一行配置 */
     for (i = 0; i < totlines; i++) {
         sds *argv;
         int argc;
@@ -302,6 +305,7 @@ void loadServerConfigFromString(char *config) {
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
         /* Skip comments and blank lines */
+        /* 跳过注释行 */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
         /* Split into arguments */
@@ -501,6 +505,7 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
+                // ====>加载sentinel配置
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
@@ -563,6 +568,7 @@ void loadServerConfig(char *filename, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
+    // -=====>从配置文件读取配置
     loadServerConfigFromString(config);
     sdsfree(config);
 }

@@ -2099,7 +2099,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
-    /* sentinel模式相关*/
+    /** sentinel模式下，Sentinel对应的定时器*/
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
@@ -4984,12 +4984,16 @@ void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] contains "redis-sentinel". */
+/** 检查不是不是以sentinel模式启动 */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
-
+    //如果命令是redis-sentinel，则认为是sentinel
     if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
+    //循环遍列命令对应的参数
     for (j = 1; j < argc; j++)
+        //如果参数中包含--sentinel，则认为是sentinel
         if (!strcmp(argv[j],"--sentinel")) return 1;
+    //上面情况均不满足，则默认是非sentinel模式
     return 0;
 }
 
@@ -5222,8 +5226,11 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    //如果是sentienl模式,则初始化sentinel相关
     if (server.sentinel_mode) {
+        //完成参数初始化：port和protected_mode设置
         initSentinelConfig();
+        //sentinel初始化
         initSentinel();
     }
     // 加载配置文件及其他命令
@@ -5235,6 +5242,10 @@ int main(int argc, char **argv) {
     else if (strstr(argv[0],"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
     //--------参数大于等于2，表进指定了配置文件，故从配置文件中解析相关参数
+    /** 两种情况:
+     * 1、redis启动，则读取的是redis.conf相关配置
+     * 2、sentienl模式启动，则读取的是sentinel.conf相关配置
+     * */
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -5298,7 +5309,7 @@ int main(int argc, char **argv) {
         }
         //重置默认的参数
         resetServerSaveParams();
-        //======>从将配置文件中的参数保存的Server配置中
+        /** ======>从将配置文件中的参数保存的Server配置中 */
         loadServerConfig(configfile,options);
         sdsfree(options);
     }

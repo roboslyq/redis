@@ -168,13 +168,13 @@ typedef struct instanceLink {
     mstime_t last_reconn_time;  /* Last reconnection attempt performed when
                                    the link was down. */
 } instanceLink;
-
+/** sentinel所监控的master状态信息 */
 typedef struct sentinelRedisInstance {
     int flags;      /* See SRI_... defines */
     char *name;     /* Master name from the point of view of this sentinel. */
     char *runid;    /* Run ID of this instance, or unique ID if is a Sentinel.*/
     uint64_t config_epoch;  /* Configuration epoch. */
-    sentinelAddr *addr; /* Master host. */
+    sentinelAddr *addr; /* Master host. 当前Master的IP*/
     instanceLink *link; /* Link to the instance, may be shared for Sentinels. */
     mstime_t last_pub_time;   /* Last time we sent hello via Pub/Sub. */
     mstime_t last_hello_time; /* Only used if SRI_SENTINEL is set. Last time
@@ -201,8 +201,8 @@ typedef struct sentinelRedisInstance {
     mstime_t slave_conf_change_time; /* Last time slave master addr changed. */
 
     /* Master specific. */
-    dict *sentinels;    /* Other sentinels monitoring the same master. */
-    dict *slaves;       /* Slaves for this master instance. */
+    dict *sentinels;    /* Other sentinels monitoring the same master.  监控该master实例的其他sentinel结点字典*/
+    dict *slaves;       /* Slaves for this master instance. 该master实例说包含的slave结点字典 */
     unsigned int quorum;/* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & replica. */
@@ -226,7 +226,7 @@ typedef struct sentinelRedisInstance {
     uint64_t failover_epoch; /* Epoch of the currently started failover. */
     int failover_state; /* See SENTINEL_FAILOVER_STATE_* defines. */
     mstime_t failover_state_change_time;
-    mstime_t failover_start_time;   /* Last failover attempt start time. */
+    mstime_t failover_start_time;   /* Last failover attempt start time.  */
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     mstime_t failover_delay_logged; /* For what failover_start_time value we
                                        logged the failover delay. */
@@ -239,22 +239,23 @@ typedef struct sentinelRedisInstance {
 } sentinelRedisInstance;
 
 /* Main state. */
+/** “顶级”数据结构，描述了当前运行的sentinel实例所包含的所有状态 */
 struct sentinelState {
     char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. */
-    uint64_t current_epoch;         /* Current epoch. */
+    uint64_t current_epoch;         /* Current epoch. 当前epoch  epoch本意是纪元,世纪.这里指当前FAIL OVER的次数.每发生一次FAIL OVER,epoch就+1 */
     dict *masters;      /* Dictionary of master sentinelRedisInstances.
                            Key is the instance name, value is the
-                           sentinelRedisInstance structure pointer. */
-    int tilt;           /* Are we in TILT mode? */
-    int running_scripts;    /* Number of scripts in execution right now. */
-    mstime_t tilt_start_time;       /* When TITL started. */
-    mstime_t previous_time;         /* Last time we ran the time handler. */
-    list *scripts_queue;            /* Queue of user scripts to execute. */
+                           sentinelRedisInstance structure pointer. master实例字典（一个sentinle可监控多个master） */
+    int tilt;           /* Are we in TILT mode?  Sentinel的选举算法依赖时间，因此要确保所有机器的时间同步，如果发现时间不一致，Sentinel实现了一个TILT模式来保护系统的可用性。*/
+    int running_scripts;    /* Number of scripts in execution right now. 当前正在运行的脚本数量*/
+    mstime_t tilt_start_time;       /* When TITL started. 什么时间点进入TILT模式的*/
+    mstime_t previous_time;         /* Last time we ran the time handler. 上次执行sentinel周期性执行任务的时间，用以判断是否进入TITL模式*/
+    list *scripts_queue;            /* Queue of user scripts to execute.待执行的脚本队列 */
     char *announce_ip;  /* IP addr that is gossiped to other sentinels if
-                           not NULL. */
+                           not NULL. 当前sentinel的Ip地址,如果不为空，就会传播给其他哨兵 */
     int announce_port;  /* Port that is gossiped to other sentinels if
-                           non zero. */
-    unsigned long simfailure_flags; /* Failures simulation. */
+                           non zero.当前sentinel的端口,如果不为空，就会传播给其他哨兵  */
+    unsigned long simfailure_flags; /* Failures simulation. 故障模拟*/
     int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
                                   paths at runtime? */
 } sentinel;
@@ -469,17 +470,20 @@ struct redisCommand sentinelcmds[] = {
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
 void initSentinelConfig(void) {
-    server.port = REDIS_SENTINEL_PORT;
-    server.protected_mode = 0; /* Sentinel must be exposed. */
+    server.port = REDIS_SENTINEL_PORT;/* 修改端口为sentinel默认的26379 */
+    server.protected_mode = 0; /* Sentinel must be exposed. Sentinel不能是protected模式,必须对外显露(即其它IP可以访问)*/
 }
 
 /* Perform the Sentinel mode initialization. */
+/* 执行sentinel 模式初始化*/
 void initSentinel(void) {
     unsigned int j;
 
     /* Remove usual Redis commands from the command table, then just add
      * the SENTINEL command. */
+    /** 移除已经初始化的redis命令，因为sentinel不需要*/
     dictEmpty(server.commands,NULL);
+    /** 循环添加sentinel命令 */
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
         struct redisCommand *cmd = sentinelcmds+j;
@@ -494,6 +498,7 @@ void initSentinel(void) {
     }
 
     /* Initialize various data structures. */
+    /* 初始化sentinel相关数据结构 */
     sentinel.current_epoch = 0;
     sentinel.masters = dictCreate(&instancesDictType,NULL);
     sentinel.tilt = 0;
@@ -1625,13 +1630,19 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 }
 
 /* ============================ Config handling ============================= */
+/*
+ * 1、启动时,根据配置文件初始化sentinel相关配置 ,在config.c ->loadServerConfigFromString中被调用
+ *      此时接收到的参数是具体的某一行参数配置。比如“sentinel monitor mymaster 127.0.0.1 6379 2”。
+ * 2、总体流程是通过if判断不同的配置，进而进行具体的初始化处理
+ * */
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
-
+    //对配置文件中monitor进行解析,具体格式为“sentinel monitor mymaster 127.0.0.1 6379 2”，即对应的master进行监控。最后一个2表示只要超过2个sentinel投票master为S_DOWN，
+    // 那么就可以认为当前Master可以变为O_DOWN。
+    //调用createSentinelRedisInstance创建master实例(SRI_MASTER)
     if (!strcasecmp(argv[0],"monitor") && argc == 5) {
         /* monitor <name> <host> <port> <quorum> */
         int quorum = atoi(argv[4]);
-
         if (quorum <= 0) return "Quorum must be 1 or greater.";
         if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
                                         atoi(argv[3]),quorum,NULL) == NULL)
@@ -1711,12 +1722,15 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->leader_epoch = strtoull(argv[2],NULL,10);
-    } else if ((!strcasecmp(argv[0],"known-slave") ||
+    }
+    //调用createSentinelRedisInstance创建slave实例(SRI_SLAVE)
+    else if ((!strcasecmp(argv[0],"known-slave") ||
                 !strcasecmp(argv[0],"known-replica")) && argc == 4)
     {
         sentinelRedisInstance *slave;
 
         /* known-replica <name> <ip> <port> */
+        //根据master name获取对应的master实例
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
@@ -1724,7 +1738,9 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         {
             return "Wrong hostname or port for replica.";
         }
-    } else if (!strcasecmp(argv[0],"known-sentinel") &&
+    }
+        //调用createSentinelRedisInstance创建sentinel实例(SRI_SENTINEL)
+    else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
         sentinelRedisInstance *si;
 
@@ -4556,6 +4572,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
  * for SENTINEL_TILT_PERIOD to elapse before starting to act again.
  *
  * During TILT time we still collect information, we just do not act. */
+//检测是否需要进入ITLT模式
 void sentinelCheckTiltCondition(void) {
     mstime_t now = mstime();
     mstime_t delta = now - sentinel.previous_time;
@@ -4567,20 +4584,30 @@ void sentinelCheckTiltCondition(void) {
     }
     sentinel.previous_time = mstime();
 }
-
+/**
+ * sentinel定时器实现
+ * 包括check master、slave、sentinel的状态，并根据配置的条件判断是否需要fail over。
+ */
 void sentinelTimer(void) {
+    //检测是否需要进入TILT模式
     sentinelCheckTiltCondition();
+    //检查字典中保存的所有Redis客户端
     sentinelHandleDictOfRedisInstances(sentinel.masters);
+    //运行需要运动的脚本
     sentinelRunPendingScripts();
+    //移除已经结束的脚本
     sentinelCollectTerminatedScripts();
+    //清理超时脚本
     sentinelKillTimedoutScripts();
 
     /* We continuously change the frequency of the Redis "timer interrupt"
      * in order to desynchronize every Sentinel from every other.
-     * This non-determinism avoids that Sentinels started at the same time
-     * exactly continue to stay synchronized asking to be voted at the
+     * This non-determinism(非确定) avoids that Sentinels started at the same time
+     * exactly continue to stay synchronized asking to be voted(投票,选举) at the
      * same time again and again (resulting in nobody likely winning the
      * election because of split brain voting). */
+    //重置sentinel定义任务触发的频率(随机不确定),防止不同sentinel之前调度频率完全一致,进而影响投票等和时间相关的操作。
+    //通过这个随机频率，完美的解决了这个问题。牛叉！
     server.hz = CONFIG_DEFAULT_HZ + rand() % CONFIG_DEFAULT_HZ;
 }
 
