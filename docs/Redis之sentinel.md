@@ -59,3 +59,5 @@ $(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME)
 
 [Redis Sentinel源码分析（一）](https://blog.csdn.net/yfkiss/article/details/22151175)
 
+[redis系列之sentinel结构的网络构建](https://www.jianshu.com/p/95e7b3cab6d5)
+

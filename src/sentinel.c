@@ -27,7 +27,12 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/**
+ * sentinel本身是监督者的身份，没有存储功能。在整个体系中一个sentinel者或一群sentinels与主从服务架构体系是监督与被监督的关系。
+ * 作为一个sentinel在整个架构体系中有就可能有如下三种交互：sentinel与主服务器、sentinel与从服务器、sentinel与其他sentinel。
+ * 既然是交互，交互所需要的基本内容对于这三种场景还是一样的，首先要构建这样的一个交互网络无可避免，需要节点的注册与发现、节点之间的通信连接、节点保活、节点之间的通信协议等。
+ * 因为角色不同所以在这个架构体系中承担的功能也不一样。所以交互的内容也不一样。
+ */
 #include "server.h"
 #include "hiredis.h"
 #ifdef USE_OPENSSL
@@ -53,21 +58,23 @@ extern SSL_CTX *redis_tls_ctx;
 /* ======================== Sentinel global state =========================== */
 
 /* Address object, used to describe an ip:port pair. */
+/** 地址结构体，表示一个IP:PORT */
 typedef struct sentinelAddr {
     char *ip;
     int port;
 } sentinelAddr;
 
 /* A Sentinel Redis Instance object is monitoring. */
-#define SRI_MASTER  (1<<0)
-#define SRI_SLAVE   (1<<1)
-#define SRI_SENTINEL (1<<2)
-#define SRI_S_DOWN (1<<3)   /* Subjectively down (no quorum). */
-#define SRI_O_DOWN (1<<4)   /* Objectively down (confirmed by others). */
+/* 被监视的Redis实例相关定义抽象*/
+#define SRI_MASTER  (1<<0)          //0b0000 0000 被监视的实例是MASTER标识
+#define SRI_SLAVE   (1<<1)          //0b0000 0001 被监视的实例是SLAVE标识
+#define SRI_SENTINEL (1<<2)         //ob0000 0100 被监视的实例是SENTINEL
+#define SRI_S_DOWN (1<<3)   /* Subjectively down (no quorum). 0b0000 1000主观认为被监视的对象已经DOWN掉，但没有经过多数投票同意(no quorum) */
+#define SRI_O_DOWN (1<<4)   /* Objectively down (confirmed by others).0b0001 0000 被监视的对象客观的DOWN掉，经过多数SENTINEL(监视者)投票同意 */
 #define SRI_MASTER_DOWN (1<<5) /* A Sentinel with this flag set thinks that
-                                   its master is down. */
+                                   its master is down. .0b0010 0000 表示被监视的sentinel DOWN掉了*/
 #define SRI_FAILOVER_IN_PROGRESS (1<<6) /* Failover is in progress for
-                                           this master. */
+                                           this master.  0b0100 0000 表示由当前SENTIENL发起故障转移(即redis重新选举MASTER)*/
 #define SRI_PROMOTED (1<<7)            /* Slave selected for promotion. */
 #define SRI_RECONF_SENT (1<<8)     /* SLAVEOF <newmaster> sent. */
 #define SRI_RECONF_INPROG (1<<9)   /* Slave synchronization in progress. */
@@ -94,9 +101,9 @@ typedef struct sentinelAddr {
 #define SENTINEL_MAX_DESYNC 1000
 #define SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG 1
 
-/* Failover machine different states. */
-#define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
-#define SENTINEL_FAILOVER_STATE_WAIT_START 1  /* Wait for failover_start_time*/
+/* Failover machine different states. 选举过程状态描述*/
+#define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. 没有FAILOVER*/
+#define SENTINEL_FAILOVER_STATE_WAIT_START 1  /* Wait for failover_start_time 在等待failover_start_time后，如果没有接到LEADER的心跳，发起选举*/
 #define SENTINEL_FAILOVER_STATE_SELECT_SLAVE 2 /* Select slave to promote */
 #define SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE 3 /* Slave -> Master */
 #define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 4 /* Wait slave to change role */
@@ -142,6 +149,14 @@ typedef struct sentinelAddr {
  *
  * Links are shared only for Sentinels: master and slave instances have
  * a link with refcount = 1, always. */
+/**
+ * 如果一个sentinel集群，它们同时监听着同样的一批master，如：除了自身还有其他5个sentinel共同监听100个master的话
+ * ,按照通过master查找sentinel节点循环来创建的连接的方式，就可能与其他5个sentinel建立500个连接，但实际上只要5个连接就可以了，
+ * 但是sentinelReconnectInstance结构体还是500个。
+ * 因此在检测到有一样连接时(根据runId判断)，就会去共享该sentinel连接，保留一个共享就可以了，
+ * 这样就可以保证与其他5个sentinel只建立5个连接，而不是持有500个连接，并且ping的命令也只用发5个了。
+ * 这个优化过程也是针对sentinel的所以instanceLink结构的连接共享也是只针对flags=SRI_sentinel，其他的模式refcount总是为1。
+ * */
 typedef struct instanceLink {
     int refcount;          /* Number of sentinelRedisInstance owners. */
     int disconnected;      /* Non-zero if we need to reconnect cc or pc. */
@@ -168,7 +183,7 @@ typedef struct instanceLink {
     mstime_t last_reconn_time;  /* Last reconnection attempt performed when
                                    the link was down. */
 } instanceLink;
-/** sentinel所监控的master状态信息 */
+/** sentinel所监控的master/slave/sentinel集群中其它sentienl 这三者的状态信息 */
 typedef struct sentinelRedisInstance {
     int flags;      /* See SRI_... defines */
     char *name;     /* Master name from the point of view of this sentinel. */
@@ -450,7 +465,7 @@ void sentinelInfoCommand(client *c);
 void sentinelSetCommand(client *c);
 void sentinelPublishCommand(client *c);
 void sentinelRoleCommand(client *c);
-
+/** sentinel 命令定义  */
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
     {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
@@ -2153,6 +2168,9 @@ int sentinelMasterLooksSane(sentinelRedisInstance *master) {
 }
 
 /* Process the INFO output from masters. */
+/** master发送的info命令返回结果的
+ * 注意：由于info命令返回结果内容繁多、新旧版本格式兼容、以及tilt模式和故障转移时master与slave角色对换的处理过程复杂，所以该方法也很长
+ * */
 void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
     int numlines, j;
@@ -2633,6 +2651,13 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
  *
  * Returns C_OK if the PUBLISH was queued correctly, otherwise
  * C_ERR is returned. */
+/*
+ * 发现其他sentinel
+ *  在与master和slave的连接中会有一条pub/sub的连接，都订阅了相同master的__sentinel__:hello频道，
+ *  在上面的周期方法也看到每隔2秒钟sentinel便会向master的频道广播hello消息。
+ *  那也就意味着，如果有两个sentinel同时监听同一个master时，这两个sentinel会收到互相广播的信息，
+ *  而这个信息的内容就可以用来传播自身的信息，从而让其知道对方的存在。
+ * */
 int sentinelSendHello(sentinelRedisInstance *ri) {
     char ip[NET_IP_STR_LEN];
     char payload[NET_IP_STR_LEN+1024];
@@ -2732,6 +2757,7 @@ int sentinelSendPing(sentinelRedisInstance *ri) {
 
 /* Send periodic PING, INFO, and PUBLISH to the Hello channel to
  * the specified master or slave instance. */
+/** 当前SENTINEL周期性的向其它角色发起相关指令(MASTER SLAVE SENTINEL) */
 void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     mstime_t now = mstime();
     mstime_t info_period, ping_period;
@@ -2764,13 +2790,14 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     {
         info_period = 1000;
     } else {
-        info_period = SENTINEL_INFO_PERIOD;
+        info_period = SENTINEL_INFO_PERIOD; //每10s就会发送一个info命令
     }
 
     /* We ping instances every time the last received pong is older than
      * the configured 'down-after-milliseconds' time, but every second
      * anyway if 'down-after-milliseconds' is greater than 1 second. */
     ping_period = ri->down_after_period;
+//    默认每1s发送ping命令且down-after-milliseconds参数可配
     if (ping_period > SENTINEL_PING_PERIOD) ping_period = SENTINEL_PING_PERIOD;
 
     /* Send INFO to masters and slaves, not sentinels. */
@@ -2791,6 +2818,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     }
 
     /* PUBLISH hello messages to all the three kinds of instances. */
+//        每2s广播hello msg
     if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         sentinelSendHello(ri);
     }
@@ -4541,7 +4569,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
 
 /* Perform scheduled operations for the specified Redis instance. */
 /**
- * Sentinel会每隔100ms执行一次sentinelHandleRedisInstance函数。
+ * 发现从服务器： Sentinel会每隔100ms执行一次sentinelHandleRedisInstance函数。
  * 1、流程会检查master是否进入SDOWN状态，接着会检查master是否进入ODOWN状态，接着会查看是否需要开始故障转移，
  * 2、如果开始故障转移就会向其他节点拉去投票，接下来有个故障转移的状态机，根据不同的failover_state，决定完成不同的操作，
  *      正常的时候failover_state为SENTINEL_FAILOVER_STATE_NONE。
@@ -4550,7 +4578,10 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
 void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
     /* ========== MONITORING HALF ============ */
     /* Every kind of instance */
+    /**sentinel结构体系中三种角色的连接创建: Redis MASTER,SALVE 和 SENTINEL*/
     sentinelReconnectInstance(ri);
+
+    /** 与主服务器MASTER 发送相关探测指令 */
     sentinelSendPeriodicCommands(ri);
 
     /* ============== ACTING HALF ============= */
