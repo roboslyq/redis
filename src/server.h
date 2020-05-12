@@ -1435,8 +1435,11 @@ struct redisServer {
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     /* Scripting lua脚本相关*/
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
-    client *lua_client;   /* The "fake client" to query Redis from Lua */
+    lua_State *lua; /* The Lua interpreter. We use just one for all clients  lua脚本环境，在lua的lstate.h中定义*/
+    client *lua_client;   /* The "fake client" to query Redis from Lua  虚拟客户lua客户端
+                            *  所以lua调用redis函数过程是  lua ----> lua_client ----> redis
+                            *  执行完成后，返回过程是  lua lua <---- lua_client <---- redis
+                            *  */
     client *lua_caller;   /* The client running EVAL right now, or NULL */
     char* lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts Lua脚本的sha1值*/

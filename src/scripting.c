@@ -110,6 +110,7 @@ void sha1hex(char *digest, char *script, size_t len) {
 
 /* ---------------------------------------------------------------------------
  * Redis reply to Lua type conversion functions.
+ * redis协议定义的类型与lua对应的数据类型进行转换
  * ------------------------------------------------------------------------- */
 
 /* Take a Redis reply in the Redis protocol format and convert it into a
@@ -336,6 +337,7 @@ void luaSortArray(lua_State *lua) {
 
 /* ---------------------------------------------------------------------------
  * Lua reply to Redis reply conversion functions.
+ * lua返回转换成redis对应的数据形式
  * ------------------------------------------------------------------------- */
 
 /* Reply to client 'c' converting the top element in the Lua stack to a
@@ -1004,6 +1006,7 @@ int luaSetResp(lua_State *lua) {
 
 /* ---------------------------------------------------------------------------
  * Lua engine initialization and reset.
+ * lua引擎初始化和重置
  * ------------------------------------------------------------------------- */
 /** lua引擎初始化 */
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
@@ -1021,14 +1024,14 @@ LUALIB_API int (luaopen_bit) (lua_State *L);
  * @param lua
  */
 void luaLoadLibraries(lua_State *lua) {
-    luaLoadLib(lua, "", luaopen_base);
-    luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
-    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
-    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
-    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
-    luaLoadLib(lua, "cjson", luaopen_cjson);
-    luaLoadLib(lua, "struct", luaopen_struct);
-    luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
+    luaLoadLib(lua, "", luaopen_base);                  //基础库
+    luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);     //表格库
+    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);    //字符串库
+    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);     //数学库
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);      //调度库
+    luaLoadLib(lua, "cjson", luaopen_cjson);            //CJSON库:用于处理JSON
+    luaLoadLib(lua, "struct", luaopen_struct);          //struct库：lua值与c结构体相互转换
+    luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);      //cmsgpack库：用于处理messagepack
     luaLoadLib(lua, "bit", luaopen_bit);
 
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
@@ -1096,9 +1099,9 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  * in order to reset the Lua scripting environment.
  *
  * However it is simpler to just call scriptingReset() that does just that. */
-/** 集成lua脚本*/
+/** 第1步：集成lua脚本*/
 void scriptingInit(int setup) {
-    //lua状态机
+    /** 步骤1：lua状态机初始化 */
     lua_State *lua = lua_open();
     //服务启动初始化Lua时，为1
     if (setup) {
@@ -1108,8 +1111,9 @@ void scriptingInit(int setup) {
         server.lua_timedout = 0;
         ldbInit();
     }
-
+    /** 步骤2：载入函数库到lua环境中，从而lua环境可以使用这些函数*/
     luaLoadLibraries(lua);
+    //删除不支持的函数
     luaRemoveUnsupportedFunctions(lua);
 
     /* Initialize a dictionary we use to map SHAs to scripts.
@@ -1120,6 +1124,7 @@ void scriptingInit(int setup) {
     server.lua_scripts_mem = 0;
 
     /* Register the redis commands table and fields */
+    /** 步骤3：将redis相关命令注册到lua中，从而使lua中可以调用redis相关函数 */
     lua_newtable(lua);
     /* redis.call */
     lua_pushstring(lua,"call");
@@ -1215,7 +1220,7 @@ void scriptingInit(int setup) {
 
     /* Replace math.random and math.randomseed with our implementations. */
     lua_getglobal(lua,"math");
-
+    /** 步骤4： Redis 自制特殊的随机数函数，替换lua自带有副作用的随机数函数*/
     lua_pushstring(lua,"random");
     lua_pushcfunction(lua,redis_math_random);
     lua_settable(lua,-3);
@@ -1228,6 +1233,7 @@ void scriptingInit(int setup) {
 
     /* Add a helper function that we use to sort the multi bulk output of non
      * deterministic commands, when containing 'false' elements. */
+    /** 步骤5：创建一个排序辅助函数(比较)，lua中使用这个函数对redis结果进行排序 */
     {
         char *compare_func =    "function __redis__compare_helper(a,b)\n"
                                 "  if a == false then a = '' end\n"
@@ -1242,6 +1248,7 @@ void scriptingInit(int setup) {
      * Note that when the error is in the C function we want to report the
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
+    /** 步骤6：添加pcall辅助函数，提供更详细的错误输出 */
     {
         char *errh_func =       "local dbg = debug\n"
                                 "function __redis__err__handler(err)\n"
@@ -1263,6 +1270,7 @@ void scriptingInit(int setup) {
      * inside the Lua interpreter.
      * Note: there is no need to create it again when this function is called
      * by scriptingReset(). */
+    /** 步骤7：创建虚拟的LUA客户端，因为redis命令执行都要有一个对应的Clients*/
     if (server.lua_client == NULL) {
         server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
@@ -1271,8 +1279,9 @@ void scriptingInit(int setup) {
     /* Lua beginners often don't use "local", this is likely to introduce
      * subtle bugs in their code. To prevent problems we protect accesses
      * to global variables. */
+    /** 步骤8：设置全局环境进行保护，防止用户在执行lua脚本时，将额外的全局变量添加以lua环境中 */
     scriptingEnableGlobalsProtection(lua);
-
+    /** 最后1步：将Lua环境设置到服务器server.lua属性中 */
     server.lua = lua;
 }
 
@@ -1283,7 +1292,9 @@ void scriptingRelease(void) {
     server.lua_scripts_mem = 0;
     lua_close(server.lua);
 }
-
+/**
+ * 释放脚本和重建脚本，针对 SCRIPT FLUSH命令
+ */
 void scriptingReset(void) {
     scriptingRelease();
     scriptingInit(0);
@@ -1312,6 +1323,9 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
 
 /* The following implementation is the one shipped with Lua itself but with
  * rand() replaced by redisLrand48(). */
+/** redis为lua专门定义的随机数函数，从而防止在lua中执行随机数相关操作导致SLAVE与MASTER之间无法同步问题
+ * ==》此随机数在不同机器上执行，只要seed相同，都会有相同的结果
+ * */
 int redis_math_random (lua_State *L) {
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
      some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
@@ -1803,12 +1817,13 @@ void scriptCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) { // 清除服务端所有的LUA脚本信息，释放lua_scripts字典，关闭当前lua环境，并创建一个新的lua环境
+        //释放脚本字典和重建脚本
         scriptingReset();
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
-    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
+    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) { //检查脚本是否存在
         int j;
 
         addReplyArrayLen(c, c->argc-2);
@@ -1818,7 +1833,7 @@ NULL
             else
                 addReply(c,shared.czero);
         }
-    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
+    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) { //装载脚本
         sds sha = luaCreateFunction(c,server.lua,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
@@ -1835,7 +1850,7 @@ NULL
             server.lua_kill = 1;
             addReply(c,shared.ok);
         }
-    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
+    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {//调试命令
         if (clientHasPendingReplies(c)) {
             addReplyError(c,"SCRIPT DEBUG must be called outside a pipeline");
             return;
