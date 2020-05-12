@@ -54,6 +54,7 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
+/* 开启事务之后,将一个新的命令添加到事务队列中 */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;

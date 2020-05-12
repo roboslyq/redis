@@ -3799,11 +3799,15 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
-    if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
-    {   /** 事务command */
+    /** 执行命令 */
+    if (c->flags & CLIENT_MULTI                 //开启了事务
+        && c->cmd->proc != execCommand          //不是exec命令
+        && c->cmd->proc != discardCommand       //不是discard命令
+        && c->cmd->proc != multiCommand         //不是multi命令
+        && c->cmd->proc != watchCommand)        //不是watch命令
+    {   /**如果满足上述松的, 将相关命令入队到事务队列中。如果是上述命令，则与普通命令一样，进行相关事务的提交，回滚等操作*/
         queueMultiCommand(c);
+        //添加"QUEUED"响应
         addReply(c,shared.queued);
     } else {
         /** 调用具体处理指令，比如t_string.c ->setCommand  */

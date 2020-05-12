@@ -205,11 +205,11 @@ typedef long long ustime_t; /* microsecond time type. */
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
-/* Client flags */
+/* Client flags  客户端状态*/
 #define CLIENT_SLAVE (1<<0)   /* This client is a repliaca */
 #define CLIENT_MASTER (1<<1)  /* This client is a master */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
-#define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
+#define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context  客户端已经开启事务操作*/
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
 #define CLIENT_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
@@ -678,16 +678,16 @@ typedef struct redisDb {
         list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
-/* Client MULTI/EXEC state */
+/* Client MULTI/EXEC state  事务队列保存的命令结构体 */
 typedef struct multiCmd {
-    robj **argv;
-    int argc;
-    struct redisCommand *cmd;
+    robj **argv;    //命令参数
+    int argc;       //参数个数
+    struct redisCommand *cmd;   //命令
 } multiCmd;
-
+/** 事务状态---->第1层  */
 typedef struct multiState {
-    multiCmd *commands;     /* Array of MULTI commands */
-    int count;              /* Total number of MULTI commands */
+    multiCmd *commands;     /* Array of MULTI commands  数组:事务队列(保存的命令),FIFO顺序*/
+    int count;              /* Total number of MULTI commands  已入队命令计数器*/
     int cmd_flags;          /* The accumulated command flags OR-ed together.
                                So if at least a command has a given flag, it
                                will be set in this field. */
@@ -789,7 +789,7 @@ typedef struct user {
 #define CLIENT_ID_AOF (UINT64_MAX) /* Reserved ID for the AOF client. If you
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
-
+/** 客户端数据结构定义 */
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     connection *conn;
@@ -812,7 +812,7 @@ typedef struct client {
                                anything (admin). */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
-    long bulklen;           /* Length of bulk argument in multi bulk request. */
+    long bulklen;           /* Length of bulk argument in multi bulk request. 事务队列长度 */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     size_t sentlen;         /* Amount of bytes already sent in the current
@@ -820,7 +820,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    uint64_t flags;         /* Client flags: CLIENT_* macros. 客户端类型,有好几十种,在server.h中定义*/
+    uint64_t flags;         /* Client flags: CLIENT_* macros. 客户端当前状态,有好几十种,在server.h中定义*/
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
@@ -839,7 +839,7 @@ typedef struct client {
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
-    multiState mstate;      /* MULTI/EXEC state */
+    multiState mstate;      /* MULTI/EXEC state  事务状态*/
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
@@ -1076,7 +1076,7 @@ struct clusterState;
 #define CHILD_INFO_TYPE_MODULE 3
 
 struct redisServer {
-    /* General */
+    /* General  通用配置*/
     pid_t pid;                  /* Main process pid. */
     char *configfile;           /* Absolute config file path, or NULL */
     char *executable;           /* Absolute executable file path. */
@@ -1101,7 +1101,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    /* Modules */
+    /* Modules  模块配置？？？TODO*/
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
@@ -1110,7 +1110,7 @@ struct redisServer {
                                    client blocked on a module command needs
                                    to be processed. */
     pid_t module_child_pid;     /* PID of module child */
-    /* Networking */
+    /* Networking  Networking网络操作配置*/
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1145,7 +1145,7 @@ struct redisServer {
     int io_threads_num;         /* Number of IO threads to use. IO线程数量，Redis6之后可以设置多线程IO */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
 
-    /* RDB / AOF loading information */
+    /* RDB / AOF loading information  启动时文件恢复RDB/AOF配置 */
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
@@ -1220,7 +1220,7 @@ struct redisServer {
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
-    /* AOF persistence */
+    /* AOF persistence  AOF持久化相关配置*/
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
@@ -1260,7 +1260,7 @@ struct redisServer {
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
-    /* RDB persistence */
+    /* RDB persistence  RDB持久化配置*/
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
@@ -1312,8 +1312,8 @@ struct redisServer {
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output 最近一次使用（访问）的数据集*/
     int repl_ping_slave_period;     /* Master pings the slave every N seconds   主从连接心跳频率*/
-    char *repl_backlog;             /* Replication backlog for partial syncs 积压空间指针*/
-    long long repl_backlog_size;    /* Backlog circular buffer size 积压空间大小*/
+    char *repl_backlog;             /* Replication backlog for partial syncs 积压空间指针（更新指令缓存，如果SLAVE宕机后重连 ，可以通过此缓冲区实现SLAVE增量更新）*/
+    long long repl_backlog_size;    /* Backlog circular buffer size 积压空间大小，默认1M*/
     long long repl_backlog_histlen; /* Backlog actual data length  积压空间中写入的新数据的大小*/
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
                                        that is the next byte will'll write to. 下一次向积压空间写入数据的起始位置*/
@@ -1408,9 +1408,9 @@ struct redisServer {
     int daylight_active;        /* Currently in daylight saving time. */
     mstime_t mstime;            /* 'unixtime' in milliseconds. 毫秒 */
     ustime_t ustime;            /* 'unixtime' in microseconds. 微秒*/
-    /* Pubsub */
-    dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
+    /* Pubsub   发布/订阅模式配置 */
+    dict *pubsub_channels;  /* Map channels to list of subscribed clients 具体的主要订阅关系。使用Map，保存了渠道订阅关系。key为主题，values为具体的客户端 */
+    list *pubsub_patterns;  /* A list of pubsub_patterns 模式(非具体，表达式)订阅关系。使用模式作为key,values为具体客户端。比如模式“news.*”*/
     dict *pubsub_patterns_dict;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
