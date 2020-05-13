@@ -439,10 +439,12 @@ void clusterUpdateMyselfFlags(void) {
                              CLUSTER_TODO_UPDATE_STATE);
     }
 }
-
+/**
+ * Server启动时,集群初始化
+ */
 void clusterInit(void) {
     int saveconf = 0;
-
+    //内存分配
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;

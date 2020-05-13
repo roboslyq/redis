@@ -3035,7 +3035,7 @@ void initServer(void) {
     }
     // cluster集群初始化
     if (server.cluster_enabled) clusterInit();
-    // 主从复杂初始化
+    // 主从复制初始化
     replicationScriptCacheInit();
     /** 11 初始化lua脚本 */
     scriptingInit(1);

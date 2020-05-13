@@ -1414,11 +1414,11 @@ struct redisServer {
     dict *pubsub_patterns_dict;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    /* Cluster */
-    int cluster_enabled;      /* Is cluster enabled? */
-    mstime_t cluster_node_timeout; /* Cluster node timeout. */
-    char *cluster_configfile; /* Cluster auto-generated config file name. */
-    struct clusterState *cluster;  /* State of the cluster */
+    /* Cluster  3.0之后集群相关配置 */
+    int cluster_enabled;      /* Is cluster enabled?  是否启动集群?*/
+    mstime_t cluster_node_timeout; /* Cluster node timeout. 集群群节点超时时间*/
+    char *cluster_configfile; /* Cluster auto-generated config file name. 集群自己生成的配置文件名称*/
+    struct clusterState *cluster;  /* State of the cluster  集群状态*/
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if

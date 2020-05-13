@@ -3,9 +3,10 @@
 
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures, defines, exported API.
+ * Redis 集群数据结构定义,以及暴露的API定义
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384
+#define CLUSTER_SLOTS 16384   /** 集群槽点数默认是16384*/
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 #define CLUSTER_NAMELEN 40    /* sha1 hex length */
@@ -135,7 +136,9 @@ typedef struct clusterNode {
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
-
+/**
+ * 集群状态信息
+ */
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
