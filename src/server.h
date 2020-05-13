@@ -632,7 +632,7 @@ typedef struct redisObject {
                             * and most significant 16 bits access time). */
     // 键值对对象的引用统计。当此值为 0 时，回收对象。
     int refcount;
-    // 指向底层实现数据结构的指针。就是实际存放数据的地址。
+    // 指向底层实现数据结构的指针,就是实际存放数据的地址。具体实现由 type + encoding组合实现
     void *ptr;
 } robj;
 

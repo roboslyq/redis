@@ -39,7 +39,9 @@ extern const char *SDS_NOINIT;
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
-/* 1、类型定义：从这里可以看出，本质上sds类型就是char*类型: 实际指向下面sdshdrXX结构中的buf
+/*
+ * 注意，sds其实不是一个结构体类型，而是被typedef的char
+ * 1、类型定义：从这里可以看出，本质上sds类型就是char*类型: 实际指向下面sdshdrXX结构中的buf
  * 2、主要区别就是：sds一定有一个所属的结构(sdshdr)，这个header结构在每次创建sds时被创建，用来存储sds以及sds的相关信息。
  * 3、优点：
  *       1)想用O(1)的时间复杂度获取字符串长度(利用sdshdr)。
@@ -58,7 +60,7 @@ typedef char *sds;
         所在，在小于3.2之前版本的redis每次创建一个sds 不管sds实际有多长，都会分配一个大小固定的sdshdr。根据成员len的类型可知，sds最多能存长度为2^(8*sizeof(unsigned int))的字符串
    2、3.2分支引入了五种sdshdr类型，每次在创建一个sds时根据sds的实际长度判断应该选择什么类型的sdshdr，不同类型的sdshdr占用的内存空间不同。这样细分一下可以省去很多不必要的内存开销。
    以下是五种类型的sdshdr类型定义：
-        长度在0和2^5-1之间，选用SDS_TYPE_5类型的header。
+        长度在0和2^5-1之间，选用SDS_TYPE_5类型的header。(只定义，不使用，默认使用SDS_TYPE_8来保存)
         长度在2^5和2^8-1之间，选用SDS_TYPE_8类型的header。
         长度在2^8和2^16-1之间，选用SDS_TYPE_16类型的header。
         长度在2^16和2^32-1之间，选用SDS_TYPE_32类型的header。
@@ -113,7 +115,8 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 //redis提供助手宏或者函数，可以更方便的操作sds
 
 /*
- * 双井号##的意思是在一个宏(macro)定义里连接两个子串(token)，连接之后这##号两边的子串就被编译器识别为一个。
+ * 1、双井号##的意思是在一个宏(macro)定义里连接两个子串(token)，连接之后这##号两边的子串就被编译器识别为一个。
+ *  例如:shshdr##T，如果用  SDS_HDR_VAR(8,s)  ，此时shshdr##T将被替换为 此时shshdr
  * sdslen函数里第一行出现了s[-1]，看起来感觉会是一个undefined behavior，其实不是，这是一种正常又正确的使用方式，它就等同于*(s-1)。
  * he deﬁnition of the subscript operator [] is that E1[E2] is identical to (*((E1)+(E2))). --C99。
  * 又因为s是一个sds(char*)所以s指向的类型是char，-1就是-1*sizeof(char)，由于sdshdr结构体内禁用了内存对齐，所以这也刚好是一个

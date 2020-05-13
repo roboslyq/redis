@@ -80,20 +80,22 @@ static inline char sdsReqType(size_t string_size) {
  * \0 characters in the middle, as the length is stored in the sds header. */
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
-    sds s;
+    sds s; // 相当于char s;即最终返回的值
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
-
+    // 分配的长度是hdrlen + 真实长度 + 1个结束标识符
     sh = s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
+    //初始化为0
     if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
+    //设置s对应的头部
     switch(type) {
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);

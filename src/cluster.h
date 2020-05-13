@@ -184,6 +184,12 @@ typedef struct clusterState {
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages. */
+/**
+ * 1、Gossip协议是一个通信协议，一种传播消息的方式，灵感来自于：瘟疫、社交网络等。
+ * 2、常见的场景是数据复制：先从1节节点复制到N个节点(N可以设置，比如为4),那么此时有5个节点，然后这5个节点每个节点又随机找N个节点进行传播复制（随机，重复也没关系）。
+ * 如此循环下去，直到所有节点都已经得到最新的数据
+ * 使用Gossip协议的有：Redis Cluster、Consul、Apache Cassandra等。
+ * */
 typedef struct {
     char nodename[CLUSTER_NAMELEN];
     uint32_t ping_sent;

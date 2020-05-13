@@ -135,7 +135,14 @@ sds sdsnewlen(const void *init, size_t initlen) {
             break;
         }
         case SDS_TYPE_8: {
+            /**
+             * 1、SDS_HDR_VAR(8,s);等价于 struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));
+             * 2、sh是上面定义的 void *sh;，本身是一个指针。经过上面的语句后，sh指向sdshdr8结构体起始位置。
+             *    因为sdshdr8,指针为字符数组s的前sizeof(struct sdshdr8),即刚好是对应的sds类型的长度。
+             * 3、
+            */
             SDS_HDR_VAR(8,s);
+            //给对应的sh指针赋值，sh即对应的sds结构
             sh->len = initlen;
             sh->alloc = initlen;
             *fp = type;
