@@ -103,7 +103,8 @@ static inline char sdsReqType(size_t string_size) {
        init：初始化字符串指针
        initlen: 字符串长度
 返回值：
-   成功：返回新的sds(本质是char 数组)
+   成功：返回新的sds(本质是char 数组)。为什么返回的是是sdshdr->buf，而不是sdshdr?
+        因为这些实现就可以完全兼容标准C语言的常见字符串方法。因为sdshdr->buf就是一样char[]数组。
    失败：返回NULL
 */
 sds sdsnewlen(const void *init, size_t initlen) {
