@@ -3635,6 +3635,9 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
+    /**
+     * 如果是集群模式
+     * */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -3644,14 +3647,20 @@ int processCommand(client *c) {
     {
         int hashslot;
         int error_code;
+        //根据Key获取对应的Node，并将错误保存到error_code中
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
+        /**
+         * 1、如果Node为空，或者node不是当前节点，表明当前节点不能处理这个key。
+         * 2、如果当前Node就是处理当前key的，那么不做任何处理，当作普通指令继续往下执行。
+         * */
         if (n == NULL || n != server.cluster->myself) {
-            if (c->cmd->proc == execCommand) {
+                if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
             } else {
                 flagTransaction(c);
             }
+            //集群重定向:当Node不为空并且不是当前Node,那么会返回MOVED 相关异常,然后客户端重新向对应的Node那起相关指令请求.
             clusterRedirectClient(c,n,hashslot,error_code);
             return C_OK;
         }
