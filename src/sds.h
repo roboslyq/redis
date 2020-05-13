@@ -123,7 +123,14 @@ struct __attribute__ ((__packed__)) sdshdr64 {
  * flags(unsigned char)的地址，所以通过s[-1]我们可以获得sds所属的sdshdr的成员变量flags
  */
 
-// 获取header指针
+/**
+ * 获取header指针,将普通的char s类型转换成sdshdr类型,即可以根据指向buf的sds变量s得到sdshdr的指针。
+ * 具体原理是通过在s往后(左)移sizeof(struct sdshdr)位，得到的
+ * 起始地址即是sdshdr的起始地址。例如：sds s, SDS_HDR_VAR(8,s)
+ *  1、SDS_HDR_VAR(8,s)等价于 struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));
+ *  2、sh是上面定义的 void *sh;，本身是一个指针。经过上面的语句后，sh指向sdshdr8结构体起始位置。
+ *    因为sdshdr8,指针为字符数组s的前sizeof(struct sdshdr8),即刚好是对应的sds类型的长度。
+*/
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 
 // 获取字符串指针: 返回一个类型为T包含s字符串的sdshdr的指针
@@ -132,7 +139,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 // 用于计算SDS_TYPE_5的实际长度: 用sdshdr5的flags成员变量做参数返回sds的长度，这其实是一个没办法的hack
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
-//获取sds字符串长度
+// 获取sds字符串长度
 static inline size_t sdslen(const sds s) {
     //sdshdr的flags成员变量
     unsigned char flags = s[-1];
@@ -150,6 +157,7 @@ static inline size_t sdslen(const sds s) {
     }
     return 0;
 }
+
 //获取sds字符串空余空间（即alloc - len）。
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];

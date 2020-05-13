@@ -120,14 +120,16 @@ sds sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = sdsHdrSize(type);
     //指向header flag的指针
     unsigned char *fp; /* flags pointer. */
-    // 分配内存(注意长度为：hdrlen+initlen+1 )
+    // 分配内存(注意长度为：hdrlen+initlen+1 )，表示头部+字符串+Null。此时sh大小为一个sds结构
     sh = s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
+    //因为此时sh指向一个标准的sds结构，所以 + hdrlen后，s就指向了sds中的buf
     s = (char*)sh+hdrlen;
+    // 因为s 指向buf,所以减1就指向后一位，即flag
     fp = ((unsigned char*)s)-1;
     switch(type) {
         case SDS_TYPE_5: {
@@ -139,7 +141,6 @@ sds sdsnewlen(const void *init, size_t initlen) {
              * 1、SDS_HDR_VAR(8,s);等价于 struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));
              * 2、sh是上面定义的 void *sh;，本身是一个指针。经过上面的语句后，sh指向sdshdr8结构体起始位置。
              *    因为sdshdr8,指针为字符数组s的前sizeof(struct sdshdr8),即刚好是对应的sds类型的长度。
-             * 3、
             */
             SDS_HDR_VAR(8,s);
             //给对应的sh指针赋值，sh即对应的sds结构
