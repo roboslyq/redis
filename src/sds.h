@@ -73,7 +73,7 @@ typedef char *sds;
 // __attribute__ ((__packed__))语法: 不存在于任何C语言标准，是GCC的一个extension，用来告诉编译器使用最小的内存来存储sdshd
 // packed: ...,This attribute, attached to struct or union type definition, specifies that each member of the structure or union is placed to minimize the memory required.
 struct __attribute__ ((__packed__)) sdshdr5 {
-    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
+    unsigned char flags; /* 3 lsb of type, and 5 msb of string length 1个字节，低3位表示类型(000)，高5位表示字符长度*/
     char buf[];
 };
 // sdshdr8:

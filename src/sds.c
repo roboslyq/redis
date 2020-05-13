@@ -103,43 +103,45 @@ static inline char sdsReqType(size_t string_size) {
        init：初始化字符串指针
        initlen: 字符串长度
 返回值：
-   成功：返回新的sds
+   成功：返回新的sds(本质是char 数组)
    失败：返回NULL
 */
 sds sdsnewlen(const void *init, size_t initlen) {
+    /** 以下说明假设 *init = "127.0.0.1:63892" , 那么 initlen  = 15*/
     void *sh;
-    // 最终构建目标sds
+    // sds是通过“typedef char *sds;”定义的，所以此处sds是一个char。以sdshdr->buf对应
     sds s;
-    //根据initlen长度来计算sdshdr 头部header的类型
+    //根据initlen长度来计算sdshdr 头部header的类型，此时 type = ‘0'，对应SDS_TYPE_5
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
-    //如果是SDS_TYPE_5,自动升级为SDS_TYPE_8
+    //如果是SDS_TYPE_5,自动升级为SDS_TYPE_8,并且initlen ==0。一般情况initlen不为0。
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
-    //计算headr的大小
+    //计算headr的大小 ，hdrlen = 1，因为SDS_TYPE_5只有一个标识位。而buf是柔性数组，不占用内存
     int hdrlen = sdsHdrSize(type);
     //指向header flag的指针
-    unsigned char *fp; /* flags pointer. */
-    // 分配内存(注意长度为：hdrlen+initlen+1 )，表示头部+字符串+Null。此时sh大小为一个sds结构
+    unsigned char *fp; /* flags pointer. 未初始化指向NULL*/
+    // 分配内存(注意长度为：hdrlen+initlen+1 )，表示头部+字符串+NULL。此时sh大小为一个sds结构
     sh = s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
-    //因为此时sh指向一个标准的sds结构，所以 + hdrlen后，s就指向了sds中的buf
+    //(没初始化)因为此时sh指向一个标准的sdshdr结构大小，所以 + hdrlen后，s就指向了sds中的buf
     s = (char*)sh+hdrlen;
     // 因为s 指向buf,所以减1就指向后一位，即flag
     fp = ((unsigned char*)s)-1;
     switch(type) {
         case SDS_TYPE_5: {
+            // 长度initlen左移3位，然后与type或，即高5位表示长度，低3位表示类型。最终值为0b01111 000
             *fp = type | (initlen << SDS_TYPE_BITS);
             break;
         }
         case SDS_TYPE_8: {
             /**
-             * 1、SDS_HDR_VAR(8,s);等价于 struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));
-             * 2、sh是上面定义的 void *sh;，本身是一个指针。经过上面的语句后，sh指向sdshdr8结构体起始位置。
+             * 1、代码"SDS_HDR_VAR(8,s);"等价于 "struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8)));"，即前者完成可以用后者替换，效果一样。
+             * 2、sh是上面定义的 void *sh;，本身是一个指针。经过上面的语句后，sh被转型为一个sdshdr8结构体指针，指向其起始位置。
              *    因为sdshdr8,指针为字符数组s的前sizeof(struct sdshdr8),即刚好是对应的sds类型的长度。
             */
             SDS_HDR_VAR(8,s);
@@ -171,8 +173,10 @@ sds sdsnewlen(const void *init, size_t initlen) {
             break;
         }
     }
+    //给s的buf赋值为init
     if (initlen && init)
         memcpy(s, init, initlen);
+    //给最末位赋值为0。因为上面的memcpy没有覆盖最末位，因此末位内存还未初始是，是一个随机值。因为强制设置为结束符
     s[initlen] = '\0';
     return s;
 }
@@ -235,8 +239,10 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+/** 扩容 */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
+    //当前sds可用空间
     size_t avail = sdsavail(s);
     size_t len, newlen;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -428,13 +434,18 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/** 追加字符串 */
 sds sdscatlen(sds s, const void *t, size_t len) {
+    // 获取sds长度
     size_t curlen = sdslen(s);
-
+    //返回扩容后的sds
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
+    //追加
     memcpy(s+curlen, t, len);
+    //更新长度
     sdssetlen(s, curlen+len);
+    //追加结束符
     s[curlen+len] = '\0';
     return s;
 }
@@ -443,6 +454,7 @@ sds sdscatlen(sds s, const void *t, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/** 追加字符串 */
 sds sdscat(sds s, const char *t) {
     return sdscatlen(s, t, strlen(t));
 }
