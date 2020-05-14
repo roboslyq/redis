@@ -516,7 +516,10 @@ robj *tryObjectEncoding(robj *o) {
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).
- * If the object is already raw-encoded just increment the ref count. */
+ * If the object is already raw-encoded(原始的编码) just increment the ref count. */
+/** 如果o已经是经过sds编码,则只需要将refcount加1，然后返回即可
+ * 如果o不是sds编码，那么进行编码
+ * */
 robj *getDecodedObject(robj *o) {
     robj *dec;
 

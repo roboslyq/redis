@@ -38,12 +38,18 @@
  *
  * There is no need for the caller to increment the refcount of 'value' as
  * the function takes care of it if needed. */
+/** 将一个value插入到subject中,使用头插或者尾插法 */
 void listTypePush(robj *subject, robj *value, int where) {
+    // 判断subject是一个list
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
+        //判断插入方式
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
+        //对value进行编码处理(确保是sds编码)
         value = getDecodedObject(value);
         size_t len = sdslen(value->ptr);
+        //将valuePush到list中
         quicklistPush(subject->ptr, value->ptr, len, pos);
+        //Push完成后，refcount引用减1
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -196,33 +202,41 @@ void listTypeConvert(robj *subject, int enc) {
 
 void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
+    // 查找当前Key是否已经存在
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
-
+    // 如果key所对应的value不是OBJ_LIST类型,直接抛出异常
     if (lobj && lobj->type != OBJ_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
     }
-
+    //循环处理LIST相关命令参数:因此LIST相关命令支持多个参数同时处理
     for (j = 2; j < c->argc; j++) {
+        //如果不存在,则创建quickList对象.(新版本均以quickList为存储对象)
         if (!lobj) {
             lobj = createQuicklistObject();
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                                 server.list_compress_depth);
+            // 将生成的quickList添加到Db中，
             dbAdd(c->db,c->argv[1],lobj);
         }
+        //如果不为空或者已经完成创建,将数据插入到对应的quickList中
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
+    //添加响应
     addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
+        //
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
 }
-
+/**
+ * 左边插入命令：头插法
+ * @param c
+ */
 void lpushCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD);
 }

@@ -2,9 +2,11 @@
 
 > 在介绍Redis数据结构之前，我觉得有必要先介绍一下SDS(Simple Dynamic String)。因为SDS是Redis底层数据结构实现，是对字符串的封装。Redis中的字符串默认都是使用SDS保存的。
 
-## 对C语言char[]扩展
+## 1. SDS
 
-那么为什么要对C语言的原生char进行扩展呢？因为c语言中没有String(字符串)这个概念，对String的操作均是通过字符数组来完成的。通常，c的字符数组定义如下：
+redis对C语言的原生字符串进行了相关扩展，但又兼容原生字符串的大部分操作。那么为什么要对C语言的原生char进行扩展呢？因为c语言中没有String(字符串)这个概念，对String的操作均是通过字符数组来完成的。
+
+通常，c的字符数组定义如下：
 
 ```c
 char str[] = "hello，world"; 
@@ -19,7 +21,7 @@ strlen(str);
 
 因为字符串使用实在是太频繁了，所以有必要对其进行优化一下。
 
-### sdshdr结构体
+### 1.1. sdshdr结构体
 
 SDS (Simple Dynamic String)，Simple的意思是简单，Dynamic即动态。String是字符串的意思。是Redis对C语言原生的字符数组一种扩展包装。由Redis作者antirez创建，目前已经有一个独立[项目]( https://github.com/antirez/sds)。
 
@@ -35,7 +37,7 @@ struct sdshdr {
 
 ```
 
-在3.2之后数据结构如下：
+在3.2之后，为了更细致控制内存，防止内存浪费，对数据结构进行了更细致的划分，详情如下：
 
 ```c
 struct __attribute__ ((__packed__)) sdshdr5 {
@@ -93,77 +95,183 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 
 4、一个神奇的实现是SDS实现返回的不是sdshdr结构体，而是sdshdr->buf?为何这样实现？因为这些实现就可以完全兼容标准C语言的常见字符串方法。因为sdshdr->buf就是一样char[]数组。
 
-## redisObject对象
+
+
+## 2. redisObject对象
 
 redis对所有的对象的操作，不是直接的，而是通过redisObject对象进行包装。
 
 ```c
 typedef struct redisObject {
-    unsigned type:4;// 对象的类型，也就是我们说的 string、list、hash、set、zset中的一种，可以使用命令 TYPE key 来查看。
-    unsigned encoding:4;/* 1、encoding属性记录了队形所使用的编码(底层数据结构)，即这个对象底层使用哪种数据结构实现。详情见下面定义的OBJ_ENCODING_XXX
-                        * 2、encoding可以根据不同的使用场景来为一个对象设置不同的编码，从而优化在某一场景下的效率，极大的提升了 Redis 的灵活性和效率。
-                        * 3、可以通过函数strEncoding()来获取具体的编码方式
-                        * */
-    // 对象最后一次被访问的时间
+    unsigned type:4;
+    unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    // 键值对对象的引用统计。当此值为 0 时，回收对象。
     int refcount;
-    // 指向底层实现数据结构的指针,就是实际存放数据的地址。具体实现由 type + encoding组合实现
     void *ptr;
 } robj;
 ```
 
 通过redisObject包装，可以精确的对编码实现控制，从而对内存的使用达到最优化。
 
-编码方式有如下几种：
+> **type** : 对象的类型，面向用户的。旧版本也就是我们说的 string、list、hash、set、zset中的一种，可以使用命令 TYPE key 来查看。新版本加了两种：modules和stream
+>
+> **encoding**:
+>
+> ​		encoding属性记录了队形所使用的编码(底层数据结构)，即这个对象底层使用哪种数据结构实现。详情见下面定义的OBJ_ENCODING_XXX。
+>
+> encoding可以根据不同的使用场景来为一个对象设置不同的编码，从而优化在某一场景下的效率，极大的提升了 Redis 的灵活性和效率。可以通过函数strEncoding()来获取具体的编码方式
+>
+> **lru**:  LRU是`Least Recently Used`的缩写，即最近最少使用 。这个属性记录了对象最后一次被访问的时间。常见的淘汰有如下三种：
+>
+> FIFO：First In First Out，先进先出。判断被存储的时间，离目前最远的数据优先被淘汰。
+> LFU：Least Frequently Used，最不经常使用。在一段时间内，数据被使用次数最少的，优先被淘汰。
+>
+> **refcount**:    键值对对象的引用统计。当此值为 0 时，回收对象。
+>
+> ***ptr**:指向底层实现数据结构的指针,就是实际存放数据的地址。具体实现由 type + encoding组合实现
+
+**对类型定义如下**：
 
 ```c
-#define OBJ_ENCODING_RAW 0        /* Raw representation */
-#define OBJ_ENCODING_INT 1        /* Encoded as integer */
-#define OBJ_ENCODING_HT 2         /* Encoded as hash table */
-#define OBJ_ENCODING_ZIPMAP 3     /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
-#define OBJ_ENCODING_ZIPLIST 5    /* Encoded as ziplist */
-#define OBJ_ENCODING_INTSET 6     /* Encoded as intset */
-#define OBJ_ENCODING_SKIPLIST 7   /* Encoded as skiplist */
-#define OBJ_ENCODING_EMBSTR 8     /* Embedded sds string encoding */
-#define OBJ_ENCODING_QUICKLIST 9  /* Encoded as linked list of ziplists */
+/* The actual Redis Object */
+/** 五种数据结构,与redisObject->type对应 */
+#define OBJ_STRING 0    /* String object. */
+#define OBJ_LIST 1      /* List object. */
+#define OBJ_SET 2       /* Set object. */
+#define OBJ_ZSET 3      /* Sorted set object. */
+#define OBJ_HASH 4      /* Hash object. */
+
+/* The "module" object type is a special one that signals that the object
+ * is one directly managed by a Redis module. In this case the value points
+ * to a moduleValue struct, which contains the object value (which is only
+ * handled by the module itself) and the RedisModuleType struct which lists
+ * function pointers in order to serialize, deserialize, AOF-rewrite and
+ * free the object.
+ * Inside the RDB file, module types are encoded as OBJ_MODULE followed
+ * by a 64 bit module type ID, which has a 54 bits module-specific signature
+ * in order to dispatch the loading to the right module, plus a 10 bits
+ * encoding version. */
+//后续Redis版本新境的数据结构
+#define OBJ_MODULE 5    /* Module object. */
+#define OBJ_STREAM 6    /* Stream object. */
+
 ```
 
+**对应编码方式有如下：**
 
+```c
+/** 对象类型对应的编码定义，与struct redisObject中的encoding对应 */
+#define OBJ_ENCODING_RAW 0     /* Raw representation 简单动态字符串*/
+#define OBJ_ENCODING_INT 1     /* Encoded as integer Long类型整数*/
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table HashTable简写，即字典*/
+#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist 压缩列表*/
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset 整数集合*/
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist  跳跃列表和字典 */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding emb编码的简单动态字符串 */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists  */
+#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
+```
 
-## type=String 
+> 由对象类型 + 对象编码 决定一种具体的编码实现。
 
-###　encoding=OBJ_ENCODING_INT
+## 2.  String类型
 
-###  raw
+> 即当redisObject->type = String 时
+
+###　2.1 INT
+
+> redisObject->encoding=OBJ_ENCODING_INT
+
+###　2.2 RAW
+
+>  redisObject->encoding=OBJ_ENCODING_RAW
 
 在redisObject基础之上，如果type是一个string并且长度大于44,则采用Raw编码。
 
 此时ptr与redisObject内存不连续。此时*ptr指向一个sds结构体
 
-### embstr 
+### 2.3  EMBSTR
+
+>   redisObject->encoding=OBJ_ENCODING_EMBSTR
 
 在redisObject基础之上，如果type是一个string并且长度小于44,则采用embstr 编码。
 
 此时*ptr与redisObject内存连续，此时ptr指向一个sds结构体
 
-### type = List
+## 3. List
 
-### type = Hash
+### 3.1 LINKEDLIST(低版本)
 
-### type = SET
+>  OBJ_ENCODING_LINKEDLIST 
 
-### type = ZSET
+### 3.2 ZIPLIST(低版本)
 
-## 4大扩展结构
+>  OBJ_ENCODING_ZIPLIST 
 
-### bitmap
+### 3.3 QUICKLIST
 
-### GeoHash
+> 定义在quicklist.h中
 
-### HyperLogLog
+> 如果是普通的双向链表，prev 和 next 指针就要占去 16 个字节 (64bit 系统的指针是 8 个字节)，空间成功太高。另外每个节点的内存都是单独分配，会加剧内存的碎片化，影响内存管理效率。
+>
+> 因此redis对列表数据结构进行了改造，使用 quicklist 代替了 ziplist 和 linkedlist。经过改造的quickList 功能是 zipList 和 linkedList 的混合体，它将 linkedList 按段切分，每一段使用 zipList 来紧凑存储，多个 zipList 之间使用双向指针串接起来。
 
-### Stream
+![list](./images/struct/quicklist.jpg)
+
+## 4. Hash
+
+### 4.1 HT
+
+>  OBJ_ENCODING_HT ,hashtable
+
+### 4.2 ZIPLIST
+
+>  OBJ_ENCODING_ZIPLIST 
+
+
+
+## 5. SET
+
+### 5.1 HT
+
+>  OBJ_ENCODING_HT ,hashtable
+
+### 5.2 INTSET
+
+>  OBJ_ENCODING_INTSET
+
+
+
+## 6. ZSET
+
+### 6.1 ZIPLIST
+
+>  OBJ_ENCODING_ZIPLIST 
+
+### 6.2 SKIPLIST
+
+>  OBJ_ENCODING_SKIPLIST 
+
+## 7.MODULES
+
+TODO
+
+## 8. Stream
+
+TODO
+
+## 9.其它扩展结构
+
+> 其它是指没有定义对应的OBJ_XXX和OBJ_ENCODING_XXX
+
+### 9.1 bitmap
+
+### 9.2 GeoHash
+
+### 9.3 HyperLogLog
+
+### 

@@ -131,7 +131,7 @@ typedef struct quicklistIter {
 typedef struct quicklistEntry {
     const quicklist *quicklist;
     quicklistNode *node;
-    unsigned char *zi;
+    unsigned char *zi; // LZF 算法压缩深度
     unsigned char *value;
     long long longval;
     unsigned int sz;

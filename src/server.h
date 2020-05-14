@@ -457,7 +457,7 @@ typedef long long ustime_t; /* microsecond time type. */
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
-/** 五种数据结构 */
+/** 五种数据结构,与redisObject->type对应 */
 #define OBJ_STRING 0    /* String object. */
 #define OBJ_LIST 1      /* List object. */
 #define OBJ_SET 2       /* Set object. */
@@ -595,7 +595,7 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-/* 对象类型的定义，与struct redisObject中的type对应 */
+/** 对象类型对应的编码定义，与struct redisObject中的encoding对应 */
 #define OBJ_ENCODING_RAW 0     /* Raw representation 简单动态字符串*/
 #define OBJ_ENCODING_INT 1     /* Encoded as integer Long类型整数*/
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table HashTable简写，即字典*/

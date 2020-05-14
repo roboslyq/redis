@@ -187,6 +187,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
         val->type == OBJ_ZSET ||
         val->type == OBJ_STREAM)
         signalKeyAsReady(db, key);
+    //如果是集群操作的话,还需要将Key添加到对应的slot列表中
     if (server.cluster_enabled) slotToKeyAdd(key->ptr);
 }
 
@@ -1667,6 +1668,7 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
+/** 将key添加到对应的slot中,方便集群rehash。获取判断某个slot是否包含对应的key，也十分方便 */
 void slotToKeyUpdateKey(sds key, int add) {
     size_t keylen = sdslen(key);
     unsigned int hashslot = keyHashSlot(key,keylen);
