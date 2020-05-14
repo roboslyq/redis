@@ -5,7 +5,10 @@
  * in O(1) time. However, because every operation requires a reallocation of
  * the memory used by the ziplist, the actual complexity is related to the
  * amount of memory used by the ziplist.
- *
+ * ziplist是一个特殊编码的二元链表，它被设计成非常高效的内存。
+ * ziplist可以同时保存string和integer对象。当一个String是纯数字时，就使用数字替代string保存。
+ * ziplist是一个双端链表，允许双端push和pop，即lpush,lpop,rpush,rpop操作，时间复杂度是O(1)。
+ * 然而每一次操作都需更新已使用内存标识符，所以真实的时间复杂度与内存使用旦有关。
  * ----------------------------------------------------------------------------
  *
  * ZIPLIST OVERALL LAYOUT
@@ -15,8 +18,8 @@
  *
  * The general layout of the ziplist is as follows（ziplist数据结构如下）:
  *
- * <zlbytes>                     <zltail>        <zllen>          <entry>         <entry> ...            <entry>                            <zlend>
- * zl大小(4字节，表示zl字节数)    zl尾部    zl的长度（enrty节点数量）         节点             节点         节点              zl结束标识符
+ * <zlbytes>                  <zltail>        <zllen>          <entry>         <entry> ...            <entry>                            <zlend>
+ * zl大小(4字节，表示zl字节数)    zl尾部    zl的长度（enrty节点数量   节点             节点                 节点              zl结束标识符
  * NOTE: all fields are stored in little endian, if not specified otherwise.
  * 注意：数据使用LE(小端模式存储)
  * <uint32_t zlbytes> is an unsigned integer to hold the number of bytes that

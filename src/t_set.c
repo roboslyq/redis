@@ -39,6 +39,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
+/** 创建一个set */
 robj *setTypeCreate(sds value) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
@@ -260,12 +261,13 @@ void setTypeConvert(robj *setobj, int enc) {
         serverPanic("Unsupported set conversion");
     }
 }
-
+/** 添加指令*/
 void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
-
+    // 从DB中查找出对应的SET结构
     set = lookupKeyWrite(c->db,c->argv[1]);
+    //如果set为空，即DB不存在当前key的set，那么创建一个新的
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);

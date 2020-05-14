@@ -1651,7 +1651,7 @@ cleanup:
             incr ? "zincr" : "zadd", key, c->db->id);
     }
 }
-
+/** zadd命令处理 */
 void zaddCommand(client *c) {
     zaddGenericCommand(c,ZADD_NONE);
 }

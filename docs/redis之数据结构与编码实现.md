@@ -1,6 +1,6 @@
 # Redis之数据结构与编码实现
 
-> 在介绍Redis数据结构之前，我觉得有必要先介绍一下SDS(Simple Dynamic String)。因为SDS是Redis底层数据结构实现，是对字符串的封装。Redis中的字符串默认都是使用SDS保存的。
+> 在本章节正式开始之前，我觉得有必要单独的介绍一下SDS(Simple Dynamic String)。因为SDS是Redis底层数据结构实现，是对字符串的封装，是Redis中的字符串默认保存的数据结构。
 
 ## 1. SDS
 
@@ -17,7 +17,9 @@ strlen(str);
 
 1、求字符数组的长度，时间复杂度是O(n)
 
-2、不能动态扩容和预分配空间
+2、不能动态扩容
+
+3、不能预分配空间
 
 因为字符串使用实在是太频繁了，所以有必要对其进行优化一下。
 
@@ -73,8 +75,6 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 
 上述源码用图表示如下：
 
-
-
 ![sds](./images/struct/1.jpg)
 
 - **len**:  表示当前sds的长度(单位是字节),包括'0'终止符，通过len直接获取字符串长度，不需要扫一遍string。
@@ -85,17 +85,15 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 
 - **buf[]**: sds实际存放的位置(本质是一个char数组)。**关键：** 这个字符数组也是暴露给用户的地址。但是，在创建sds时，已经把完整的`sdshdr`结构创建出来了，因此，可以通过向前(左)偏移，得到len,alloc,flags这些类型。
 
-即通过给char[] 添加了三种重要的标识，使得各种操作十分方便快捷，起到了空间换时间的作用。
+所以，redis的SDS是通过给char[] 添加了三种重要的标识len,alloc及flags，使得各种操作十分方便快捷，起到了空间换时间的作用。
 
 1、求字符数组的长度，时间复杂度是O(1)，因为有字段记录了数组的长度
 
 2、可以实现动态扩容和预分配空间，因为有len和alloc两属性，因此很方便的求出空闲属性alloc - len
 
-3、因为有了len与alloc属性，什么预分配空间，惰性释放等均可以实现。
+3、因为有了len与alloc属性，预分配空间，惰性释放等均可以实现。
 
 4、一个神奇的实现是SDS实现返回的不是sdshdr结构体，而是sdshdr->buf?为何这样实现？因为这些实现就可以完全兼容标准C语言的常见字符串方法。因为sdshdr->buf就是一样char[]数组。
-
-
 
 ## 2. redisObject对象
 
@@ -123,7 +121,7 @@ typedef struct redisObject {
 >
 > encoding可以根据不同的使用场景来为一个对象设置不同的编码，从而优化在某一场景下的效率，极大的提升了 Redis 的灵活性和效率。可以通过函数strEncoding()来获取具体的编码方式
 >
-> **lru**:  LRU是`Least Recently Used`的缩写，即最近最少使用 。这个属性记录了对象最后一次被访问的时间。常见的淘汰有如下三种：
+> **lru**:  LRU是`Least Recently Used`的缩写，即最近最少使用 。这个属性记录了对象最后一次被访问的时间。常见的淘汰策略除了LRU，还有如下两种：
 >
 > FIFO：First In First Out，先进先出。判断被存储的时间，离目前最远的数据优先被淘汰。
 > LFU：Least Frequently Used，最不经常使用。在一段时间内，数据被使用次数最少的，优先被淘汰。
@@ -132,7 +130,7 @@ typedef struct redisObject {
 >
 > ***ptr**:指向底层实现数据结构的指针,就是实际存放数据的地址。具体实现由 type + encoding组合实现
 
-**对类型定义如下**：
+**对象类型**
 
 ```c
 /* The actual Redis Object */
@@ -159,7 +157,7 @@ typedef struct redisObject {
 
 ```
 
-**对应编码方式有如下：**
+**编码方式**
 
 ```c
 /** 对象类型对应的编码定义，与struct redisObject中的encoding对应 */
@@ -186,7 +184,19 @@ typedef struct redisObject {
 
 > redisObject->encoding=OBJ_ENCODING_INT
 
-###　2.2 RAW
+场景：保存的string是纯数字时
+
+### 2.2  EMBSTR
+
+>   redisObject->encoding=OBJ_ENCODING_EMBSTR
+
+在redisObject基础之上，如果type是一个string并且长度小于44,则采用embstr 编码。
+
+此时*ptr与redisObject内存连续，此时ptr指向一个sds结构体。
+
+场景：string长度小于44时。
+
+###　2.3 RAW
 
 >  redisObject->encoding=OBJ_ENCODING_RAW
 
@@ -194,13 +204,7 @@ typedef struct redisObject {
 
 此时ptr与redisObject内存不连续。此时*ptr指向一个sds结构体
 
-### 2.3  EMBSTR
-
->   redisObject->encoding=OBJ_ENCODING_EMBSTR
-
-在redisObject基础之上，如果type是一个string并且长度小于44,则采用embstr 编码。
-
-此时*ptr与redisObject内存连续，此时ptr指向一个sds结构体
+场景：普通的String，长度大于等于44。
 
 ## 3. List
 
@@ -214,9 +218,9 @@ typedef struct redisObject {
 
 ### 3.3 QUICKLIST
 
-> 定义在quicklist.h中
+> 定义在`quicklist.h`中，现版本中的List均是通过quickList实现。
 
-> 如果是普通的双向链表，prev 和 next 指针就要占去 16 个字节 (64bit 系统的指针是 8 个字节)，空间成功太高。另外每个节点的内存都是单独分配，会加剧内存的碎片化，影响内存管理效率。
+> 如果是普通的双向链表，prev 和 next 指针就要占去 16 个字节 (64bit 系统的指针是 8 个字节)，空间成本太高。另外每个节点的内存都是单独分配，会加剧内存的碎片化，影响内存管理效率。
 >
 > 因此redis对列表数据结构进行了改造，使用 quicklist 代替了 ziplist 和 linkedlist。经过改造的quickList 功能是 zipList 和 linkedList 的混合体，它将 linkedList 按段切分，每一段使用 zipList 来紧凑存储，多个 zipList 之间使用双向指针串接起来。
 
@@ -224,25 +228,59 @@ typedef struct redisObject {
 
 ## 4. Hash
 
-### 4.1 HT
-
->  OBJ_ENCODING_HT ,hashtable
-
-### 4.2 ZIPLIST
+### 4.1 ZIPLIST
 
 >  OBJ_ENCODING_ZIPLIST 
 
+场景：数据量少，遍列实现，因为数量小，所以遍列性能较高。通过`server.hash_max_ziplist_value`参数来控制是否需要将ZIPLIST编码转换为HT编码。
 
+```powershell
+127.0.0.1:6379> hset book a b
+(integer) 1
+127.0.0.1:6379> hset book c d
+(integer) 1
+127.0.0.1:6379> object encoding book
+"ziplist"
+127.0.0.1:6379> hset book c xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxdddddddddddddddddddddddddddddddddddddddddd
+(integer) 0
+127.0.0.1:6379> object encoding book
+"hashtable"
+127.0.0.1:6379>                                                                                                         
+```
 
-## 5. SET
+> 其中xxx...ddd是我随便输入的测试字符串，没有什么特殊含义。
 
-### 5.1 HT
+### 4.2 HT
 
 >  OBJ_ENCODING_HT ,hashtable
 
-### 5.2 INTSET
+## 5. SET
+
+### 5.1 INTSET
 
 >  OBJ_ENCODING_INTSET
+
+当SET中为纯数字时，使用INTSET编码，如果SET中包含了字符，则使用HT编码。
+
+```shell
+127.0.0.1:6379> sadd book1 212
+(integer) 1
+127.0.0.1:6379> sadd book1 222
+(integer) 1
+127.0.0.1:6379> sadd book1 223
+(integer) 1
+127.0.0.1:6379> object encoding book1
+"intset"
+127.0.0.1:6379> sadd book1 223b
+(integer) 1
+127.0.0.1:6379> object encoding book1
+"hashtable"
+127.0.0.1:6379> a                                                                                                       
+```
+
+### 5.2 HT
+
+>  OBJ_ENCODING_HT ,hashtable
 
 
 
@@ -273,5 +311,3 @@ TODO
 ### 9.2 GeoHash
 
 ### 9.3 HyperLogLog
-
-### 

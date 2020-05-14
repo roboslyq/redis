@@ -37,6 +37,7 @@
 /* Check the length of a number of objects to see if we need to convert a
  * ziplist to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
+/** 是否必要将ziplist转换为真正的hash: 转换因素是根据zip中保存的元素数量决定的 */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
 
@@ -44,8 +45,9 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
     for (i = start; i <= end; i++) {
         if (sdsEncodedObject(argv[i]) &&
+            //当超过hash_max_ziplist_value时，需要转换，此值可以配置
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
-        {
+        {  //将ziplist转换为真正的Hash
             hashTypeConvert(o, OBJ_ENCODING_HT);
             break;
         }
@@ -199,9 +201,17 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
+/**
+ * 将对应的Key-value插入到hash中
+ * @param o         对应的Hash表
+ * @param field     对应的key
+ * @param value     对应的value
+ * @param flags      HASH_SET_COPY... ... ...
+ * @return
+ */
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
-
+    // 当Hash还是使用ziplist编码实现时
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
@@ -236,7 +246,9 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+    }
+    //当Hash使用HT实现
+    else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
             sdsfree(dictGetVal(de));
@@ -447,18 +459,27 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
     if (vstr) return sdsnewlen(vstr,vlen);
     return sdsfromlonglong(vll);
 }
-
+/**
+ * 查找对应的key是否已经存在
+ * @param c
+ * @param key
+ * @return
+ */
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
+    //如果o不存在，则创建一个新的robj对象
     if (o == NULL) {
         o = createHashObject();
+        //创建完成后添加的db中
         dbAdd(c->db,key,o);
     } else {
+        //如果不是OBJ_HASH类型，直接抛了异常
         if (o->type != OBJ_HASH) {
             addReply(c,shared.wrongtypeerr);
             return NULL;
         }
     }
+    //返回o
     return o;
 }
 
@@ -526,20 +547,25 @@ void hsetnxCommand(client *c) {
         server.dirty++;
     }
 }
-
+/**
+ * hset 命令入口
+ * @param c
+ */
 void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
-
+    // key - value 必须为整数，对2取余应该为0
     if ((c->argc % 2) == 1) {
         addReplyError(c,"wrong number of arguments for HMSET");
         return;
     }
-
+    //找到对应的robj对象：创建或者已存在
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    //是否需要将ziplist编码转换为真正的hash编码,如果需要完成转换
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
-
+    //命令支持多对参数，key-value,因此i的跨度是2
     for (i = 2; i < c->argc; i += 2)
+        //将key-value插入到对应的hash中
         created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
 
     /* HMSET (deprecated) and HSET return value is different. */
@@ -640,7 +666,7 @@ void hincrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,3,newobj);
     decrRefCount(newobj);
 }
-
+/** 从hash *o 中取出对应key->field值 */
 static void addHashFieldToReply(client *c, robj *o, sds field) {
     int ret;
 
@@ -675,13 +701,13 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
         serverPanic("Unknown hash encoding");
     }
 }
-
+/** hget命令实现*/
 void hgetCommand(client *c) {
     robj *o;
-
+    //第1步：先在db中，找到对应的hash
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
-
+    /** 从hash中取出对应Key的值 */
     addHashFieldToReply(c, o, c->argv[2]->ptr);
 }
 

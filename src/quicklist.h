@@ -48,7 +48,7 @@
 typedef struct quicklistNode {
     struct quicklistNode *prev; //前置节点
     struct quicklistNode *next; //后置节点
-    unsigned char *zl;
+    unsigned char *zl;          // 对应的ziplist指针
     unsigned int sz;             /* ziplist size in bytes ziplist数据量大小(Byte)*/
     unsigned int count : 16;     /* count of items in ziplist  ziplist节点数量*/
     unsigned int encoding : 2;   /* RAW==1 or LZF==2    编码*/

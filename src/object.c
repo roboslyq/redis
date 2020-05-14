@@ -400,7 +400,7 @@ robj *resetRefCount(robj *obj) {
     obj->refcount = 0;
     return obj;
 }
-
+/** 类型检查 */
 int checkType(client *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);

@@ -155,7 +155,7 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
     expireIfNeeded(db,key);
     return lookupKey(db,key,flags);
 }
-
+/** 查找对应的key在数据库中是否已经存在 */
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
