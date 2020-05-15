@@ -87,7 +87,8 @@
  * what kind of integer will be stored after this header. An overview of the
  * different types and encodings is as follows. The first byte is always enough
  * to determine the kind of entry.
- * 当前节点(entry)编码方式依赖于当前节点的内容。如果当前节点是一个string,那么前2bits存储了当前string的长度，接下来就是真实的string数据 ：
+ * 当前节点(entry)编码方式依赖于当前节点的内容。如果当前节点是一个string,那么前2bits存储了当前string的编码类型，接下来就是真实的string数据长度 ：
+ * 当前节点(entry)编码方式依赖于当前节点的内容。如果当前节点是一个string,那么前2bits存储了当前string的编码类型，接下来就是真实的string数据长度· ：
  * 如果当前节点是一个integer,那么前2bits都设置为1，接下来2bits用来表示integer类型，然后才是真正的integer数据。
  * ziplist的节点共可以分为以下9类，其中整数节点6类，string节点3类：
  * 第1种entry编码情况：前2bits为0，表示string的值小于63，直接可以用后6bit位表示。
@@ -114,7 +115,7 @@
  *      Integer encoded as 24 bit signed (3 bytes).
  * |11111110| - 2 bytes  8位有符号整数  即 11111110  xxxxxxxx
  *      Integer encoded as 8 bit signed (1 byte).
- * |1111xxxx|          xxxx就是范围，即0到13
+ * |1111xxxx|          xxxx就是范围，即0到14，但0000已经在上面作为标识符被使用，所以实际表示的范围12。
  *      - (with xxxx between 0000 and 1101) immediate 4 bit integer.
  *      Unsigned integer from 0 to 12. The encoded value is actually from
  *      1 to 13 because 0000 and 1111 can not be used, so 1 should be
@@ -284,8 +285,8 @@
  * of items field.
  * 头部大小，zlbytes + zltail + entries = 32 + 32 + 16 = 80 bit
  *      [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
- *        |             |          |       |       |     |
- *     zlbytes        zltail    entries   "2"     "5"   end
+ *        |                 |          |       |       |     |
+ *     zlbytes            zltail    entries                 end
  * */
 
 #define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))

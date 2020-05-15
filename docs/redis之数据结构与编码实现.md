@@ -32,9 +32,9 @@ sds 有两个版本，在Redis 3.2之前使用的是第一个版本，其数据�
 ```c
 typedef char sds;      
 struct sdshdr {
-    unsigned int len;   //buf中已经使用的长度
-    unsigned int free;  //buf中未使用的长度
-    char buf[];         //柔性数组buf
+    unsigned int len;   //buf中已经使用的长度（4Byte）
+    unsigned int free;  //buf中未使用的长度（4Byte）
+    char buf[];         //柔性数组buf（0Byte）
 };
 
 ```
@@ -48,9 +48,9 @@ struct __attribute__ ((__packed__)) sdshdr5 {
 };
 // sdshdr8:
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; 
-    uint8_t alloc;
-    unsigned char flags;  
+    uint8_t len; 			// （1Byte）
+    uint8_t alloc;			// （1Byte）
+    unsigned char flags;  	// （1Byte）
     char buf[];  
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
@@ -101,12 +101,13 @@ redis对所有的对象的操作，不是直接的，而是通过redisObject对�
 
 ```c
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4;		//（4Byte）
+    unsigned encoding:4;	//（4Byte）
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
+    					  //（4Byte）
+    int refcount;		  //（4Byte）
     void *ptr;
 } robj;
 ```
@@ -175,6 +176,131 @@ typedef struct redisObject {
 ```
 
 > 由对象类型 + 对象编码 决定一种具体的编码实现。
+
+## 3、编码方式实现
+
+> 在redis中，编码方式的实现是基于SDS + redisObject基础之上
+
+### 3.1 RAW
+
+> 即普通的字符串，基于SDS存储实现。用于存储普通字符串，字符串长度超过44(不同版本阀值不一样，低版本可能为39)。具体修改原因可以参考文章：[Redis的embstr与raw编码方式不再以39字节为界了！](https://blog.csdn.net/XiyouLinux_Kangyijie/article/details/78045385 ) 
+>
+
+### 3.2 EMBSTR
+
+> 前提知识：
+>
+> 1、redis采用的是jemalloc内存分配器，可以分配8,16,32,64字节等大小的内存。所以当分配的内存大于32时，最小的分配单位是64。这个64很关键！！！
+>
+> 2、redisObject大小为16字节
+
+embstr,嵌入式String， 是一块连续的内存区域，由redisObject和sdshdr组成。
+
+**旧版本**
+
+> sizeof(sdshrd) =  64 - sizeof(redisObject) = 64 - 16 = 48。
+>
+> 在64字节内，max(sizeof(sdshdr)) = 48 - sizeof(sdshdr->header) = 48 - 4 - 4 - 1= 39。
+>
+> 其中，最后一个1是 '\0',是结束标识符。 因而，对于redis来说小于等于39字节的字符串采用embstr编码，大于则用raw编码。
+
+**新版本**
+
+> 新版本（sdshdr8）：sdshdr的大小为1+1+1+buf+1,redisObject不变。所以如果还是需要按64大小分配内存时，buf=44。因为，小于等于44字节的字符串采用embstr编码，大于则用raw编码。
+
+
+
+**embstr优点**
+
+embstr编码是专门用于保存短字符串的一种优化编码方式，跟正常的字符编码相比有以一优点：
+
+1. 内存连续，从而内存碎片化少。
+2. 相对于其它的字符编码会调用两次内存分配函数来分别创建redisObject和sdshdr结构，而embstr编码则通过调用一次内存分配函数来分配一块连续的空间，空间中一次包含redisObject和sdshdr两个结构。
+
+
+
+### 3.3 INT
+
+> 当值可以转换为整数时(比如“123”,"3223")等
+
+### 3.4 ZIPLIST
+
+官方定义结构：
+
+![ziplist](./images/struct/ziplist.jpg)
+
+**enrty**结构
+
+![ziplist](./images/struct/ziplist-entry.jpg)
+
+prevrawlensize: 前置节点的“prelen”大小，根据具体编码规则可以为1或者5。图中对于enrty2来说，prevrawlensize即对应entry1的lensize。
+
+prevrawlen:前置节点长度，即整个前置entry(prevlen + encoding + entry-data)大小。图中对于enrty2来说，prevrawlensize即对应entry1的len。
+
+lensize:当前节点的长度编码空间，根据具体编码规则可以为1或者5。图中对于enrty2来说，prevrawlensize即对应entry1的lensize。
+
+len:当前节点长度，即整个前置entry(prevlen + encoding + entry-data)大小。图中对于enrty2来说，prevrawlensize即对应entry1的len。
+
+encoding:当前节点编码方式，是一个unsigned char类型。有很多种， ZIP_STR_* or ZIP_INT_*。
+
+*p:指向节点保存的具体数据。
+
+> 上述只是粗略描述，具体的ziplist编码很灵活，细节实现可能不一样。比如lensize小于254和大于254这两种情况。
+
+**encoding**
+
+> encoding 是一个`char`，长度是8bit。
+>
+> 高位2bit很重要，它代表了后面data的编码类型。
+>
+> - 00 ： 格式为|00pppppp| ，表示后面6位表示string长度，此时，value的最大长度0b00111111 = 63(Byte)。此时encoding + value布局如下：|00pppppp|string
+>
+>   例如: encoding = 5,二进制为0b00000101。*p指向长度为5个字节的字符串即可，例如'abcde'。
+>
+> - 01：格式为|00pppppp| ，使用两个字节表示字符串的长度。即 ppppppqqqqqqqq 共14 bit位表示 字符串长度。2^14  = 1024 * 16 = 16KB。此时，可以描述最长字符串为16KB。
+>
+> - 10:格式为 10000000|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| 。故一共有4*8 位(bit)，故可以描述长度为2^32 - 1 字节的字符串。此中，第1个字节中的低6位没有使用，空闲。
+>
+> - 11:表时是数字编码，
+>
+>   - |11000000| - 总长度为3 Byte,后面紧跟2Byte用来表述整数长度。因此，可以描述 16位整数，即 11000000 xxxxxxxx xxxxxxxx
+>   - |11010000| - 5 bytes   32位整数， 即 11010000  xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
+>   - |11100000| - 9 bytes   64位整数， 即 11100000  xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
+>   -  |11110000| - 4 bytes   24位有符号整数  即 11110000  xxxxxxxx xxxxxxxx xxxxxxxx
+>   - |11111110| - 2 bytes  8位有符号整数  即 11111110  xxxxxxxx
+>   - |1111xxxx| -         xxxx就是范围，在0000和1101，因为0000和1110（2bytes,8位有符号整数）已经在上面被编码了，所以表面xxxx的值是0001到1101，共13个。
+>   - |11111111| - 即0XFF,ziplist的 结束标识符
+
+**ziplist**相关操作
+
+基于上述数据结构，ziplist可以实现以下常用的操作;
+
+- push
+  - 有两种方式ZIPLIST_ENTRY_END 和 ZIPLIST_ENTRY_HEAD,即头插法和尾插法。
+- next
+- prev
+- get
+- insert
+- delete
+- find
+- merge
+- 
+
+### HT
+
+### ZIPMAP
+
+### LINKEDLIST
+
+### INTSET
+
+### SKIPLIST
+
+### QUICKLIST
+
+### STREAM
+
+TODO
 
 ## 2.  String类型
 
