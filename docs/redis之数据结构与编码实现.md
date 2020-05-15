@@ -176,6 +176,8 @@ typedef struct redisObject {
 ```
 
 > 由对象类型 + 对象编码 决定一种具体的编码实现。
+>
+>  ![redis_type_encode.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/e5d77276d190acc1941db75266e4e444.png) 
 
 ## 3、编码方式实现
 
@@ -284,9 +286,16 @@ encoding:当前节点编码方式，是一个unsigned char类型。有很多种�
 - delete
 - find
 - merge
-- 
 
 ### HT
+
+在redis中，hashtable指dict hash table。因为redis使用了字典这种数据结构来实现hashtable
+
+> 字典是Redis中存在最广泛的一种数据结构不仅在哈希对象，集合对象和有序结合对象中都有使用，而且Redis所有的Key,Value都是存在db->dict这张字典中的。
+>
+> Redis 的字典使用哈希表作为底层实现。
+>
+> 一个哈希表里面可以有多个哈希表节点，而每个哈希表节点就保存了字典中的一个键值对。
 
 ### ZIPMAP
 
