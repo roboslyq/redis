@@ -42,6 +42,7 @@
 #define INTSET_ENC_INT64 (sizeof(int64_t))
 
 /* Return the required encoding for the provided value. */
+/** 返回对应整数v的编码方式 */
 static uint8_t _intsetValueEncoding(int64_t v) {
     if (v < INT32_MIN || v > INT32_MAX)
         return INTSET_ENC_INT64;
@@ -112,26 +113,31 @@ static intset *intsetResize(intset *is, uint32_t len) {
  * sets "pos" to the position of the value within the intset. Return 0 when
  * the value is not present in the intset and sets "pos" to the position
  * where "value" can be inserted. */
+/** 在intset中查找相应数字是否存在 */
 static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     int min = 0, max = intrev32ifbe(is->length)-1, mid = -1;
     int64_t cur = -1;
 
     /* The value can never be found when the set is empty */
+    /* 当set是空的时候，不可能有值，所以直接返回 */
     if (intrev32ifbe(is->length) == 0) {
         if (pos) *pos = 0;
         return 0;
     } else {
         /* Check for the case where we know we cannot find the value,
          * but do know the insert position. */
+        /** 如果value大于最大值 （因为intset有序），value将插入位置为最后*/
         if (value > _intsetGet(is,max)) {
             if (pos) *pos = intrev32ifbe(is->length);
             return 0;
-        } else if (value < _intsetGet(is,0)) {
+        }
+        /**如果value小于最小值(因为intset有序)，value将插入的位置为0*/
+        else if (value < _intsetGet(is,0)) {
             if (pos) *pos = 0;
             return 0;
         }
     }
-
+    /** value在intset中间，使用二分查找*/
     while(max >= min) {
         mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);
@@ -143,7 +149,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
             break;
         }
     }
-
+    /*找到元素返回1，否则返回0，pos为元素应该位置*/
     if (value == cur) {
         if (pos) *pos = mid;
         return 1;
@@ -154,6 +160,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
 }
 
 /* Upgrades the intset to a larger encoding and inserts the given integer. */
+/** 升级intset的编码，使得intset可以保存更大的数据类型 */
 static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     uint8_t curenc = intrev32ifbe(is->encoding);
     uint8_t newenc = _intsetValueEncoding(value);
@@ -167,13 +174,14 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     /* Upgrade back-to-front so we don't overwrite values.
      * Note that the "prepend" variable is used to make sure we have an empty
      * space at either the beginning or the end of the intset. */
+    // 从尾部开始，将原有数据进行迁移
     while(length--)
         _intsetSet(is,length+prepend,_intsetGetEncoded(is,length,curenc));
 
     /* Set the value at the beginning or the end. */
-    if (prepend)
+    if (prepend) // 小于0在集合头部
         _intsetSet(is,0,value);
-    else
+    else // 在集合尾部
         _intsetSet(is,intrev32ifbe(is->length),value);
     is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
     return is;
@@ -201,7 +209,13 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
 }
 
 /* Insert an integer in the intset */
+/** 播入数据到intset中
+ * 1、intset的升级
+ * 2、intset的查找
+ * 3、intset的插入
+ * */
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
+    /*判断添加的元素需要编码为何种数据类型, 比如int16, int32, int64(为了节省空间)*/
     uint8_t valenc = _intsetValueEncoding(value);
     uint32_t pos;
     if (success) *success = 1;
@@ -209,22 +223,26 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
     /* Upgrade encoding if necessary. If we need to upgrade, we know that
      * this value should be either appended (if > 0) or prepended (if < 0),
      * because it lies outside the range of existing values. */
+    /*如果intset编码位数无法容纳新元素，则需要重新更新升级整个intset编码*/
     if (valenc > intrev32ifbe(is->encoding)) {
         /* This always succeeds, so we don't need to curry *success. */
+        /* 更新编码并添加新元素 */
         return intsetUpgradeAndAdd(is,value);
     } else {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert
          * the value when it cannot be found. */
+        /*搜索新添加元素是否已经存在，存在则返回失败，此函数在查找一节会详细讲解*/
         if (intsetSearch(is,value,&pos)) {
             if (success) *success = 0;
             return is;
         }
-
+        /*扩展内存空间 (多1个)*/
         is = intsetResize(is,intrev32ifbe(is->length)+1);
+        /*如果添加元素位置不是一整块内存尾部，则需将其后面元素后移一个元素位置*/
         if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
     }
-
+    /*pos位置处赋值*/
     _intsetSet(is,pos,value);
     is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
     return is;

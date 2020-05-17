@@ -42,7 +42,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 /** 创建一个set */
 robj *setTypeCreate(sds value) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
+        //创建一个INTSET
         return createIntsetObject();
+    //创建普通的SET
     return createSetObject();
 }
 
@@ -50,8 +52,10 @@ robj *setTypeCreate(sds value) {
  *
  * If the value was already member of the set, nothing is done and 0 is
  * returned, otherwise the new element is added and 1 is returned. */
+/** 将一个元素添加到set中 */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
+    //当前编码是HT
     if (subject->encoding == OBJ_ENCODING_HT) {
         dict *ht = subject->ptr;
         dictEntry *de = dictAddRaw(ht,value,NULL);
@@ -60,9 +64,13 @@ int setTypeAdd(robj *subject, sds value) {
             dictSetVal(ht,de,NULL);
             return 1;
         }
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
+    }
+    //当前编码是INTSET
+    else if (subject->encoding == OBJ_ENCODING_INTSET) {
+        //判断是否可以用LongLong表示
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
+            //可以使用LongLong表示 ，那么使用INTSET相关编码。
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
                 /* Convert to regular set when the intset contains
@@ -73,6 +81,7 @@ int setTypeAdd(robj *subject, sds value) {
             }
         } else {
             /* Failed to get integer from object, convert to regular set. */
+            /* 如果不能使用Longlong表示 ，则需要将INTSET转换为HT */
             setTypeConvert(subject,OBJ_ENCODING_HT);
 
             /* The set *was* an intset and this value is not integer
@@ -248,6 +257,7 @@ void setTypeConvert(robj *setobj, int enc) {
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
+        //循环遍列 ，将longlong转换成sds
         while (setTypeNext(si,&element,&intele) != -1) {
             element = sdsfromlonglong(intele);
             serverAssert(dictAdd(d,element,NULL) == DICT_OK);

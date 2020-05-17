@@ -928,7 +928,7 @@ typedef struct zskiplistNode {
 } zskiplistNode;
 
 /**
- * Redis skiplist实现
+ * Redis skiplist(跳跃表)实现
  *     1、 跳跃表是有序数据结构，按分值进行排序，score相同的情况下比较字符串对象的大小，
  *          level[i]中的forward指针只能指向与它有相同层级的节点
  *     2、跳表用于实现有序集合对象，通过在节点中放入多个指针，一步跨越多个节点，空间换时间，使查找和插入的平均时间为O(log N)。
@@ -1598,13 +1598,13 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
-extern dictType zsetDictType;
+extern dictType zsetDictType;   // zset的ht数据结构实现
 extern dictType clusterNodesDictType;
 extern dictType clusterNodesBlackListDictType;
-extern dictType dbDictType;
+extern dictType dbDictType;     //数据库的dict实现
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
-extern dictType hashDictType;
+extern dictType hashDictType;   // hash结构的数据结构实现
 extern dictType replScriptCacheDictType;
 extern dictType keyptrDictType;
 extern dictType modulesDictType;

@@ -49,13 +49,19 @@
  * <zmlen> is 1 byte length that holds the current size of the zipmap.
  * When the zipmap length is greater than or equal to 254, this value
  * is not used and the zipmap needs to be traversed to find out the length.
- *
+ * zmlen:使用用1个字节，保存了当前zipmap的size(节点数量？)。当zipmap的长度大于等于254时，这个字段就没有用了
+ *      此时需要遍列zipmap中的元素来获取长度(性能低，因此 zipmap适合小量数据)。
  * <len> is the length of the following string (key or value).
  * <len> lengths are encoded in a single value or in a 5 bytes value.
  * If the first byte value (as an unsigned 8 bit value) is between 0 and
  * 253, it's a single-byte length. If it is 254 then a four bytes unsigned
  * integer follows (in the host byte ordering). A value of 255 is used to
  * signal the end of the hash.
+ *
+ *  len:是接下来保存的string长度。string可以是key也可以是value。
+ *  len使用1个字节或者5个字节来表示，当第1个字节小于等于253时，是single-byte模式。此时这个字节的值直接
+ *  代表了后面String的长度。如果第1个字节等于254，表示使用后面4字节来表示 String长度，此时第1字节仅仅是一个标识符。
+ *  0XFF是zipmap结束标识符。
  *
  * <free> is the number of free unused bytes after the string, resulting
  * from modification of values associated to a key. For instance if "foo"
@@ -66,7 +72,8 @@
  * <free> is always an unsigned 8 bit number, because if after an
  * update operation there are more than a few free bytes, the zipmap will be
  * reallocated to make sure it is as small as possible.
- *
+ * free:表示一个String后未使用的字节数。因为当一个String同较长更新为较短时，会产生Freep空间。
+ * 比如将"foo"->"bar"修改为“foo”->"hi",此时就会产生1个字节的空闲空间。
  * The most compact representation of the above two elements hash is actually:
  *
  * "\x02\x03foo\x03\x00bar\x05hello\x05\x00world\xff"
@@ -75,6 +82,8 @@
  * the lookup will take O(N) where N is the number of elements
  * in the zipmap and *not* the number of bytes needed to represent the zipmap.
  * This lowers the constant times considerably.
+ * 注意：因为是使用长度来表示相应的对应点位，因此如果需要查找一个元素时，是需要遍列整个zipmap的，时间复杂度是O(n)。
+ * 这比O(1)常量时间复杂度慢了很多。
  */
 
 #include <stdio.h>
@@ -372,6 +381,7 @@ int zipmapGet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned
     if ((p = zipmapLookupRaw(zm,key,klen,NULL)) == NULL) return 0;
     p += zipmapRawKeyLength(p);
     *vlen = zipmapDecodeLength(p);
+    //为什么+1呢？因为free占用了一个字节。
     *value = p + ZIPMAP_LEN_BYTES(*vlen) + 1;
     return 1;
 }

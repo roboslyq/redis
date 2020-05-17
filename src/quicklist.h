@@ -48,14 +48,14 @@
 typedef struct quicklistNode {
     struct quicklistNode *prev; //前置节点
     struct quicklistNode *next; //后置节点
-    unsigned char *zl;          // 对应的ziplist指针
-    unsigned int sz;             /* ziplist size in bytes ziplist数据量大小(Byte)*/
+    unsigned char *zl;          // 数据指针，如果没有被压缩，就指向ziplist结构，反之指向quicklistLZF结构
+    unsigned int sz;             /* ziplist size in bytes ziplist数据量大小(Byte)，压缩之前即原数据长度*/
     unsigned int count : 16;     /* count of items in ziplist  ziplist节点数量*/
-    unsigned int encoding : 2;   /* RAW==1 or LZF==2    编码*/
-    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
-    unsigned int recompress : 1; /* was this node previous compressed? */
-    unsigned int attempted_compress : 1; /* node can't compress; too small */
-    unsigned int extra : 10; /* more bits to steal for future usage */
+    unsigned int encoding : 2;   /* RAW==1 or LZF==2    编码方式，1--ziplist，2--quicklistLZF*/
+    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 预留字段，存放数据的方式，1--NONE，2--ziplist*/
+    unsigned int recompress : 1; /* was this node previous compressed? 解压标记，当查看一个被压缩的数据时，需要暂时解压，标记此参数为1，之后再重新进行压缩*/
+    unsigned int attempted_compress : 1; /* node can't compress; too small 字段长度太小，不需要压缩*/
+    unsigned int extra : 10; /* more bits to steal for future usage   扩展字段，暂时没用*/
 } quicklistNode;
 
 /* quicklistLZF is a 4+N byte struct holding 'sz' followed by 'compressed'.
@@ -64,8 +64,8 @@ typedef struct quicklistNode {
  * NOTE: uncompressed length is stored in quicklistNode->sz.
  * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF */
 typedef struct quicklistLZF {
-    unsigned int sz; /* LZF size in bytes*/
-    char compressed[];
+    unsigned int sz; /* LZF size in bytes 压缩后数据长度*/
+    char compressed[];//压缩后数据
 } quicklistLZF;
 
 /* Bookmarks are padded with realloc at the end of of the quicklist struct.
@@ -114,8 +114,23 @@ typedef struct quicklist {
     unsigned long count;        /* total count of all entries in all ziplists */
     // quicklistNode的数量
     unsigned long len;          /* number of quicklistNodes */
-    int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
-    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
+    int fill : QL_FILL_BITS;              /* fill factor for individual nodes 单个节点的填充因子：即ziplist长度，
+                                             *   1、启动时会读取 list-max-ziplist-size   配置。
+                                             *   2、当这个值为负时，只能取下面5个值，表示按照占用字节数来限定每个quicklist节点上的ziplist长度
+                                             *      -5: 每个quicklist节点上的ziplist大小不能超过64 Kb。（注：1kb => 1024 bytes）
+                                             *       -4: 每个quicklist节点上的ziplist大小不能超过32 Kb。
+                                             *       -3: 每个quicklist节点上的ziplist大小不能超过16 Kb。
+                                             *       -2: 每个quicklist节点上的ziplist大小不能超过8 Kb。（-2是Redis给出的默认值）
+                                             *       -1: 每个quicklist节点上的ziplist大小不能超过4 Kb。
+                                             *   3、当取正值的时候，表示按照数据项个数来限定每个quicklist节点上的ziplist长度
+                                             */
+    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off
+                                            *  还有一个参数list-compress-depth表示列表两头不压缩的节点的个数
+                                            *    0 特殊值，表示不压缩
+                                            *    1 表示quicklist两端各有一个节点不压缩，中间的节点压缩
+                                            *    2 表示quicklist两端各有两个节点不压缩，中间的节点压缩
+                                            *   3 表示quicklist两端各有三个节点不压缩，中间的节点压缩
+                                            */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
 } quicklist;

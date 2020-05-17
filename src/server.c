@@ -1296,6 +1296,7 @@ dictType zsetDictType = {
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
+/** 定义DB的hash类型 */
 dictType dbDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
@@ -1336,6 +1337,7 @@ dictType commandTableDictType = {
 };
 
 /* Hash type hash table (note that small hashes are represented with ziplists) */
+/** Hash的编码方式实现。 */
 dictType hashDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */

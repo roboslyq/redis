@@ -1,6 +1,43 @@
 # Redis之数据结构与编码实现
 
-> 在本章节正式开始之前，我觉得有必要单独的介绍一下SDS(Simple Dynamic String)。因为SDS是Redis底层数据结构实现，是对字符串的封装，是Redis中的字符串默认保存的数据结构。
+在讲Redis的数据结构与编码之前，我们先来看看redis首页对自自己的[介绍 ](http://www.redis.cn/)：
+
+> redis 是一个开源（BSD许可）的，内存中的数据结构存储系统，它可以用作数据库、缓存和消息中间件。 它支持多种类型的数据结构，如 [字符串（strings）](http://www.redis.cn/topics/data-types-intro.html#strings)， [散列（hashes）](http://www.redis.cn/topics/data-types-intro.html#hashes)， [列表（lists）](http://www.redis.cn/topics/data-types-intro.html#lists)， [集合（sets）](http://www.redis.cn/topics/data-types-intro.html#sets)， [有序集合（sorted sets）](http://www.redis.cn/topics/data-types-intro.html#sorted-sets) 与范围查询， [bitmaps](http://www.redis.cn/topics/data-types-intro.html#bitmaps)， [hyperloglogs](http://www.redis.cn/topics/data-types-intro.html#hyperloglogs) 和[地理空间（geospatial）](http://www.redis.cn/commands/geoadd.html) 索引半径查询。 Redis 内置了 [复制（replication）](http://www.redis.cn/topics/replication.html)，[LUA脚本（Lua scripting）](http://www.redis.cn/commands/eval.html)， [LRU驱动事件（LRU eviction）](http://www.redis.cn/topics/lru-cache.html)，[事务（transactions）](http://www.redis.cn/topics/transactions.html) 和不同级别的 [磁盘持久化（persistence）](http://www.redis.cn/topics/persistence.html)， 并通过 [Redis哨兵（Sentinel）](http://www.redis.cn/topics/sentinel.html)和自动 [分区（Cluster）](http://www.redis.cn/topics/cluster-tutorial.html)提供高可用性（high availability）。
+
+上面短短一句，包含了太多的内容。每一个名词基本都对应一个知识点，可以详细的展开写好多页的文字。这里我们只关注数据结构相关部分。
+
+- redis中一个k-v类型的数据结构(上面的话语好像没有说明这点，但大家都知道滴，因为redis就是`REmote DIctionary Server(远程字典服务器)`简称)
+
+  - 所以需要一个K-V存储结构，你来一对K-V，我就存一对K-V。这对应的redis的DB实现。默认采用Dict（字典）这种数据结构。所以，Dict这种数据结构可以用来实现DB。
+
+- redis的DB支持多种数据类型,即dict需要支持多种数据类型，所以我们需要有不同的类型。注意：此处的类型是向向用户的，所以有String hash,list,set,zset,bitmap,hyperloglog和geospatial等。
+
+- 那么每一种面向用户类型的数据结构，我们怎么实现？我们有什么办法可以节省内存呢？
+
+  - 具体实现讲真简单，这些数据结构都已经很成熟，没有什么特殊。那有没有什么可以优化的空间呢？有，当然有，那就是在不同的场景下，对具体的类型编码不同，以实现内存的优化。
+  - 我们通过redisObject这种结构来实现：
+
+  ```c
+  typedef struct redisObject {
+      unsigned type:4;		//（4Byte）
+      unsigned encoding:4;	//（4Byte）
+      unsigned lru:LRU_BITS;  /* LRU time (relative to global lru_clock) or
+                               * LFU data (least significant 8 bits frequency
+                               * and most significant 16 bits access time). 
+                               */
+      					  //（4Byte）
+      int refcount;		  //（4Byte）
+      void *ptr;
+  } robj;
+  ```
+
+  > type对应着用户的类型比如string,list等，encoding对应着具体的编码实现。因此，即使是一个string，在长短不一样，或者是纯数字“123”这样的string，我们可以采用具体不同的编码方式来存储，从而实现内存优化。
+  >
+  > 具体的细节下面再讲。
+
+**总结：redis提供了多种数据类型供用户使用，为了最优的使用内存，同一种数据类型会根据实际情况采用多种不同的类型编码**。
+
+
 
 ## 1. SDS
 
@@ -95,6 +132,81 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 
 4、一个神奇的实现是SDS实现返回的不是sdshdr结构体，而是sdshdr->buf?为何这样实现？因为这些实现就可以完全兼容标准C语言的常见字符串方法。因为sdshdr->buf就是一样char[]数组。
 
+### 1.2 dict结构体
+
+`dict`在redis也sdshdr一样，也是一种非常重要的结构体。Redis的数据库就是基于dict的实现的。
+
+关于`dict`结构定义如下：
+
+```c
+typedef struct dict {
+    dictType *type; // 类型特定函数: type里面主要记录了一系列的函数,可以说是规定了一系列的接口
+    // 私有数据
+    void *privdata;// privdata保存了需要传递给那些类型特定函数的可选参数
+    //两张哈希表【具体保存Redis数据】
+    dictht ht[2];   //便于渐进式rehash
+    //rehash 索引，并没有rehash时，值为 -1
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    //目前正在运行的安全迭代器的数量
+    unsigned long iterators; /* number of iterators currently running */
+} dict;
+```
+
+`dictht`结构体
+
+```c
+// dictht 哈希表：每个字典都使用两个哈希表，从而实现渐进式 rehash
+typedef struct dictht {         // 字典的头部
+    dictEntry **table;          // 哈希表数组, 每个元素都是一条链表
+    unsigned long size;         // 哈希表大小
+    unsigned long sizemask;     // 哈希表大小掩码，用于计算索引值 总是等于 size - 1 此值和哈希值一起决定一个键应该被放到table数组的那个索引上面
+    unsigned long used;         // 该哈希表已有节点的数量
+} dictht;
+```
+
+`dictType`定义
+
+```c
+/**
+ * 字典对应的字典类型
+ */
+typedef struct dictType {
+    // 计算哈希值的函数
+    uint64_t (*hashFunction)(const void *key);
+    // 复制键的函数
+    void *(*keyDup)(void *privdata, const void *key);
+    // 复制值的函数
+    void *(*valDup)(void *privdata, const void *obj);
+    // 对比键的函数
+    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
+    // 销毁键的函数
+    void (*keyDestructor)(void *privdata, void *key);
+    // 销毁值的函数
+    void (*valDestructor)(void *privdata, void *obj);
+} dictType;
+```
+
+**关于dictType常见实现**
+
+`server.h`
+
+```c
+extern dictType objectKeyPointerValueDictType;
+extern dictType objectKeyHeapPointerValueDictType;
+extern dictType setDictType;
+extern dictType zsetDictType;
+extern dictType clusterNodesDictType;
+extern dictType clusterNodesBlackListDictType;
+extern dictType dbDictType;
+extern dictType shaScriptObjectDictType;
+extern dictType hashDictType;
+extern dictType replScriptCacheDictType;
+extern dictType keyptrDictType;
+extern dictType modulesDictType;
+```
+
+
+
 ## 2. redisObject对象
 
 redis对所有的对象的操作，不是直接的，而是通过redisObject对象进行包装。
@@ -176,8 +288,19 @@ typedef struct redisObject {
 ```
 
 > 由对象类型 + 对象编码 决定一种具体的编码实现。
->
->  ![redis_type_encode.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/e5d77276d190acc1941db75266e4e444.png) 
+
+| 数据类型              | 少量数据 | 一般情况   | 特殊情况 |
+| --------------------- | -------- | ---------- | -------- |
+| <B>String</b>         | EMBSTR   | RAW        | INT      |
+| <B>List(旧 <3.2)</b>  | ZIPLIST  | LINKEDLIST |          |
+| <B>List(新 >=3.2)</b> |          | QUICKLIST  |          |
+| <B>Set</b>            |          | HT         | INTSET   |
+| <B>ZSet</b>           | ZIPLIST  | SKIPLIST   |          |
+| <B>Hash</b>           | ZIPLIST  | HT         |          |
+| <B>Modules</b>        | TODO     | TODO       |          |
+| <B>Stream</b>         | TODO     | TODO       |          |
+
+
 
 ## 3、编码方式实现
 
@@ -287,35 +410,481 @@ encoding:当前节点编码方式，是一个unsigned char类型。有很多种�
 - find
 - merge
 
-### HT
+优点
 
-在redis中，hashtable指dict hash table。因为redis使用了字典这种数据结构来实现hashtable
+- ziplist存储在一段连续的内存上，所以存储效率很高。
 
-> 字典是Redis中存在最广泛的一种数据结构不仅在哈希对象，集合对象和有序结合对象中都有使用，而且Redis所有的Key,Value都是存在db->dict这张字典中的。
+缺点
+
+- 但是，它不利于修改操作，插入和删除操作需要频繁的申请和释放内存。
+- 特别是当ziplist长度很长的时候，一次realloc可能会导致大批量的数据拷贝。
+
+### 3.5 HT
+
+​		HT,是hash table的简称。在redis中，Hash的实现主要是通过**字典(dict)**的这种编码试。因此HT的定义是在dict.h中实现，并且名称也叫`dictht`。
+
+> 字典(dict)是Redis中存在最广泛的一种数据结构不仅在哈希对象，**数据库**，**集合对象**，**有序集合对象** 等都是使用dict数据结构实现的。
 >
-> Redis 的字典使用哈希表作为底层实现。
+> >  关于redis的DB实现，是在db.h中定义的。所有的Key-Value都是存在db->dict这张字典中的。一个哈希表里面可以有多个哈希表节点，而每个哈希表节点就保存了字典中的一个键值对。
+
+**Dict结构**
+
+![dict](./images/struct/dict.jpg)
+
+**dict**
+
+```c
+/**
+ * 字典数据结构：redisDb中的key存储
+ */
+typedef struct dict {
+    dictType *type; // 类型特定函数: type里面主要记录了一系列的函数,可以说是规定了一系列的接口
+    // 私有数据
+    void *privdata;// privdata保存了需要传递给那些类型特定函数的可选参数
+    //两张哈希表【具体保存Redis数据】
+    dictht ht[2];   //便于渐进式rehash
+    //rehash 索引，并没有rehash时，值为 -1
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    //目前正在运行的安全迭代器的数量
+    unsigned long iterators; /* number of iterators currently running */
+} dict;
+```
+
+- **dictType**:此字段很关键，redis通过此字段来实现不同dict的不同处理，相当于Java中的泛型。具体的dict类型可以根据自己的需要来实现不同的功能 。
+
+  - ```c
+    /**
+     * 字典对应的字典类型
+     */
+    typedef struct dictType {
+        // 计算哈希值的函数
+        uint64_t (*hashFunction)(const void *key);
+        // 复制键的函数
+        void *(*keyDup)(void *privdata, const void *key);
+        // 复制值的函数
+        void *(*valDup)(void *privdata, const void *obj);
+        // 对比键的函数
+        int (*keyCompare)(void *privdata, const void *key1, const void *key2);
+        // 销毁键的函数
+        void (*keyDestructor)(void *privdata, void *key);
+        // 销毁值的函数
+        void (*valDestructor)(void *privdata, void *obj);
+    } dictType;
+    ```
+
+- **dictht ht[2]**: 此字段同样也很关键。首先，是dictht结构，是具体的哈希表（hash table）结构定义。定义数组长度为2，是为了实现**渐近式Rehash**
+
+- rehashidx: rehash已经计数器，-1表示没有rehash
+
+**dictht**
+
+> hash table
+
+```c
+// dictht 哈希表：每个字典都使用两个哈希表，从而实现渐进式 rehash
+typedef struct dictht {         // 字典的头部
+    dictEntry **table;          // 哈希表数组, 每个元素都是一条链表
+    unsigned long size;         // 哈希表大小
+    unsigned long sizemask;     // 哈希表大小掩码，用于计算索引值 总是等于 size - 1 此值和哈希值一起决定一个键应该被放到table数组的那个索引上面
+    unsigned long used;         // 该哈希表已有节点的数量
+} dictht;
+```
+
+**dictEntry**
+
+> 具体的节点
+
+```c
+/** 哈希结点: 存放键值对结点 */
+typedef struct dictEntry {
+    void *key;              // key-键
+    union {                 // 值，值v的类型可以是以下四种类型
+        void *val;
+        uint64_t u64;
+        int64_t s64;
+        double d;
+    } v;                //v-保存键值对中的值，可以是一个指针，可以是unit64_t的一个整数，也可以是int64_t的一个整数
+    // 指向下个哈希表节点，形成链表
+    struct dictEntry *next;
+} dictEntry;
+```
+
+> 此处注意，*key 和 union-> *val 一般是指redisObject对象类型。因为redis中的所有操作都是经过些类型进行包装。
+
+### 3.6 ZIPMAP
+
+> 压缩Map，在KEY数量较少的情况下使用。没有定义新的数据结构，使用char数组实现一个Map。
+
+`zipmap.c`
+
+```c
+/* Create a new empty zipmap. */
+/* 创建一个空的zipmap，此时结构为
+ * 0x00 | 0xFF
+ * 即长度为0，后面直接跟结束标识符0xFF
+ * */
+unsigned char *zipmapNew(void) {
+    unsigned char *zm = zmalloc(2);
+
+    zm[0] = 0; /* Length */
+    zm[1] = ZIPMAP_END;
+    return zm;
+}
+```
+
+> zipmap没有定义相关的结构体，只是定义了具体的char数组。因为zipmap是针对小量key-value时，以便节省存储空间而设计的数据结构。所以允许最大元素的数据量很小，使用一个字节表示，即254。
+
+关于zipmap的编码规则如下：
+
+![zipmap](./images/struct/zipmap.jpg)
+
+- len: 1个字节，描述 整个zipmap的长度(个数)，所以zip最多保存253个元素
+
+- end: zipmap结束标识符，固定值，0XFF
+
+- entry
+
+  - keylen：此值有两种情况，keylen<=253时，即表示key长度小于253,这里，只需要1个字节即可以表示key对应的长度。keylen=254时，表示key的长度超过了1个字节表范转，我们用接下来4字节表示key的长度。即此时keylen占用5个字节。
+
+  - key:具体key的值
+
+  - vallen:规则与keylen一样，有两种情况
+
+    free:value空闲字节数。为什么会空闲呢？因为更新，比如将key=1,val = "hello,world"更新为key=1,val="hello",此时即存在free空间。
+
+  - val:具体的val值
+
+  - free:空闲字节数。比如将"foo"->"bar"修改为“foo”->"hi",此时就会产生1个字节的空闲空间。相当于内存碎片一样。当内存碎片足够大时，又可以重新复用。
+
+**示例(官方)**
+
+> 保存了两对k-v的数据结构： "foo" => "bar", "hello" => "world":
 >
-> 一个哈希表里面可以有多个哈希表节点，而每个哈希表节点就保存了字典中的一个键值对。
+> ```xml
+> <zmlen><len>"foo"<len><free>"bar"<len>"hello"<len><free>"world"
+> ```
 
-### ZIPMAP
+- zmlen:1个字节，表示整个zipmap的元素个数
 
-### LINKEDLIST
+- len:表示接下来string的字节数
 
-### INTSET
+- free:表示一个String后未使用的字节数。因为当一个String同较长更新为较短时，会产生Freep空间。比如将"foo"->"bar"修改为“foo”->"hi",此时就会产生1个字节的空闲空间。通过会用一个unsigned char 8bit来表示 。后面再接具体的字符串
 
-### SKIPLIST
+  
 
-### QUICKLIST
+### 3.7 LINKEDLIST
+
+> 在adlist.h源文件中，redis的linkedlist就是一普通的双向链表，没有作其它相关扩展。此数据结构在新版本中已经作废。新版本中使用QuickList实现。
+
+```c
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+```
+
+
+
+`List定义`
+
+```c
+/**
+ * list结构体定义：List仅持有head和tail引用，在head和tail内部构成双向链表
+ */
+typedef struct list {
+    listNode *head;//头部
+    listNode *tail;//尾部
+    void *(*dup)(void *ptr);  //自定义的复制函数，如果不定义，默认策略的复制操作会让原链表和新链表共享同一个数据域
+    void (*free)(void *ptr);  //自定义free操作
+    int (*match)(void *ptr, void *key);//search操作的时候比较两个value是否相等，默认策略是比较两个指针的值
+    unsigned long len; //记录链表的长度，获取长度操作可以O(1)返回
+} list;
+
+```
+
+`Node定义`
+
+```c
+/**
+ * 5种数据类型中的第2种：list:双向链表
+ */
+typedef struct listNode {
+    struct listNode *prev;//前一ListNode
+    struct listNode *next;//后一ListNode
+    void *value;
+} listNode;
+
+```
+
+关于LINKEDLIST的编码规则如下：
+
+![adlist](./images/struct/adlist.jpg)
+
+> 就一普通的Linkedlist,每个节点有prev和next指针。adlist有head和tail两个节点的指针 ，因此支持从头开始遍列或者从尾问题开始遍列 
+
+优点
+
+- 双向链表linkedlist便于在表的两端进行push和pop操作，在插入节点上复杂度很低
+
+缺点
+
+- 但是它的内存开销比较大。首先，它在每个节点上除了要保存数据之外，还要额外保存两个指针；
+- 其次，双向链表的各个节点是单独的内存块，地址不连续，节点多了容易产生内存碎片。
+
+### 3.8 INTSET
+
+> 对应源文件intset.h
+
+```c
+typedef struct intset {
+    uint32_t encoding;
+    uint32_t length;
+    int8_t contents[];
+} intset;
+```
+
+`encodig`
+
+```c
+/* Note that these encodings are ordered, so:
+ * INTSET_ENC_INT16 < INTSET_ENC_INT32 < INTSET_ENC_INT64. */
+#define INTSET_ENC_INT16 (sizeof(int16_t))
+#define INTSET_ENC_INT32 (sizeof(int32_t))
+#define INTSET_ENC_INT64 (sizeof(int64_t))
+```
+
+> encoding决定了整个Intset的编码，是Int16,int32或者in64。因为长度固定，所以不需要前后指针或者长度表示，只需要一个encodig标识位，就决定了整个intset的编码。
+
+关于INTSET编码如下：
+
+![intset](./images/struct/intset.png)
+
+特点：
+
+1. 内存连续，数值存储有序(升序)、无重复
+2. 有三种编码方式int16_t，int32_t，int64_t，通过升级的方式进行编码切换。不支持降级。若encoding = int16_t。那么两个int8表示一个数字。如果encoding = int32_t，那么4个字节表示一个数字。
+3. redis默认使用小端存储
+
+测试编码：
+
+向一个空set执行如下命令：
+
+> 127.0.0.1:6379> sadd amt 100
+
+- 执行前
+
+![intset](./images/struct/gdb-intset.png)
+
+![intset1](./images/struct/gdb-intset1.png)
+
+执行后
+
+```shell
+(gdb) p is->encoding
+$12 = 2
+(gdb) p is->length
+$13 = 1
+```
+
+![intset2](./images/struct/gdb-intset2.png)
+
+> 0X 0200 0000: 小端模式，翻译过来为10进制的2。 即使用int-16编码。
+>
+> 0X01 00 00 00 : 小端模式，低位放在高位，高位放低位，转换为 01 00 00 00 -> 00 00 00 01 ,二进制为"0000 0000 0000 0000 0000 0000 0000 0001"，即为10进制中的1。所以长度为1。
+>
+> 0X64 00 :小端模式，低位放在高位，高位放低位，转换为 64 00  ->  00 64 ,二进制为"0000 0000 0110 0100"，即为10进制中的2^6 + 2^5 + 2^2 = 64 + 32 + 4 = 100。即我们保存的值100。
+
+再继续执行一个命令:
+
+> 127.0.0.1:6379> sadd amt 9999
+
+![intset2](./images/struct/gdb-intset3.png)
+
+> **0X0f 27 **： 0X 0f 27 --(转大端模式(人类阅读))--> 0X 27 0f  --(转二进制)--> 0b 0010 0111 0000 1111 --计算10进制值--> 2^13 + 2^10 + 2^9 + 2^8 + 2^3+2^2+2 + 1 
+>
+> = 8192 + 1024 + 512 + 256 + 8 + 4 + 2 + 1
+>
+> = 9999
+
+注意：在0f 27 后面，还可能继续有值，比如23 00 00 00等，这些值是随机的，不属于当前Intset管理。因为intset有length控制属性，不会越界访问自己管理范围外的内存。
+
+### 3.9 SKIPLIST
+
+> 此跳跃表即普通的“跳跃表”，redis中只是对标准的跳跃表进行实现。关于具体的跳跃表结构可以说参考[跳跃表](http://en.wikipedia.org/wiki/Skip_list)。
+>
+> 此跳跃表定义在源文件 redis.h/zskiplist中。对具体的 
+
+为了适应自身的功能需要，Redis 基于 William Pugh 论文中描述的跳跃表进行了以下修改：
+
+1. 允许重复的 score 值：多个不同的 member 的 score 值可以相同。
+
+2. 进行对比操作时，不仅要检查 score 值，还要检查 member ：当 score 值可以重复时，
+
+   单靠 score 值无法判断一个元素的身份，所以需要连 member 域都一并检查才行。
+
+3. 每个节点都带有一个高度为 1 层的后退指针，用于从表尾方向向表头方向迭代：当执行
+
+*ZREVRANGE* 或 *ZREVRANGEBYSCORE* 这类以逆序处理有序集的命令时，就会用到这个属性。
+
+`zskiplist`
+
+```c
+/**
+ * Redis skiplist(跳跃表)实现
+ *     1、 跳跃表是有序数据结构，按分值进行排序，score相同的情况下比较字符串对象的大小，
+ *          level[i]中的forward指针只能指向与它有相同层级的节点
+ *     2、跳表用于实现有序集合对象，通过在节点中放入多个指针，一步跨越多个节点，空间换时间，使查找和插入的平均时间为O(log N)。
+ *     3、通过在每个节点中维持多个指向其他节点的指针， 从而达到快速访问节点的目的。
+ *      跳跃表支持平均O(log N) 最坏 O(N)
+ * */
+typedef struct zskiplist {
+    //头节点和尾节点
+    struct zskiplistNode *header, *tail;
+    //节点总数
+    unsigned long length;
+    // 表中层数最大的节点的层数
+    int level;
+} zskiplist;
+```
+
+`zskiplistNode`
+
+```c
+/** Redis skiplist实现 */
+typedef struct zskiplistNode {
+    /* redis3.0版本中使用robj类型表示，但是在redis4.0.1中直接使用sds类型表示 */
+    sds ele;
+    // 分值(排序使用)
+    double score;
+    // 后退指针
+    struct zskiplistNode *backward;
+    // 层
+    //** 这里该成员是一种柔性数组，只是起到了占位符的作用,在sizeof(struct zskiplistNode)的时候根本就不占空间,
+    // 这和sdshdr结构的定义是类似的(sds.  h文件)； 如果想要分配一个struct zskiplistNode大小的空间，那么应该的分配的大小为sizeof(struct zskiplistNode) + sizeof(struct zskiplistLevel) *   count)。
+    // 其中count为柔性数组中的元素的数量
+
+    struct zskiplistLevel {
+        // 前进指针
+        struct zskiplistNode *forward;
+        // 跨度，用于记录两个节点的距离
+        unsigned long span;
+    } level[];
+} zskiplistNode;
+```
+
+**zskiplist数据结构**
+
+![zskiplist-1](./images/struct/zskiplist-1.jpg)
+
+![zskiplist-2](./images/struct/zskiplist-2.png)
+
+> 跳跃表的核心点是每一个节点保存了一个随机的level数组，这个数组中的每一个元素都指向了同一个level的下一个节点，从而实现跳跃这个操作。具体节点有哪些level这个是随机的。
+
+### 3.10 QUICKLIST
+
+> 源文件定义在quicklist.h中，基于skipList或者skiplistLZF实现。
+
+源文件注释:
+
+> ```c
+> quicklist.h - A generic doubly linked quicklist implementation
+> quicklist.c - A doubly linked list of ziplists
+> ```
+
+翻译过来就是：quicklist是一个以ziplists为节点的通用的双向链表
+
+结合了双向列表linkedlist和ziplist的特点,所有的节点都用quicklist存储，省去了到临界条件是的格式转换。
+
+简单的说，我们仍旧可以将其看作一个双向列表，但是列表的每个节点都是一个ziplist，其实就是linkedlist和ziplist的结合。quicklist中的每个节点ziplist都能够存储多个数据元素。
+
+**quicklist本身就是一个双向链表（linkedlist），但是这个双向链表的节点是ziplist，一个ziplist可以存储很多元素。因此，减少了内存碎片(ziplist)，同时又保证了便利性(linkedlist)**
+
+`quicklist`
+
+```c
+/** quicklist结构体定义,也即表头定义。 */
+typedef struct quicklist {
+    //头部
+    quicklistNode *head;
+    //尾部
+    quicklistNode *tail;
+    // 总大小(entry数据->ziplists)
+    unsigned long count;        /* total count of all entries in all ziplists */
+    // quicklistNode的数量
+    unsigned long len;          		  /* number of quicklistNodes */
+    int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
+    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
+    unsigned int bookmark_count: QL_BM_BITS;
+    quicklistBookmark bookmarks[];
+} quicklist;
+
+typedef struct quicklistBookmark {
+    quicklistNode *node;
+    char *name;
+} quicklistBookmark;
+```
+
+`quicklistNode`
+
+```c
+/** quickList编码实现*/
+// 节点quicklistNode定义
+typedef struct quicklistNode {
+    struct quicklistNode *prev; //前置节点
+    struct quicklistNode *next; //后置节点
+    unsigned char *zl;          // 对应的ziplist指针
+    unsigned int sz;             /* ziplist size in bytes ziplist数据量大小(Byte)*/
+    unsigned int count : 16;     /* count of items in ziplist  ziplist节点数量*/
+    unsigned int encoding : 2;   /* RAW==1 or LZF==2    编码*/
+    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
+    unsigned int recompress : 1; /* was this node previous compressed? */
+    unsigned int attempted_compress : 1; /* node can't compress; too small */
+    unsigned int extra : 10; /* more bits to steal for future usage */
+} quicklistNode;
+```
+
+`quicklistEntry` TOTO
+
+```c
+typedef struct quicklistEntry {
+    const quicklist *quicklist;
+    quicklistNode *node;
+    unsigned char *zi; // LZF 算法压缩深度
+    unsigned char *value;
+    long long longval;
+    unsigned int sz;
+    int offset;
+} quicklistEntry;
+
+```
+
+参数初始化`rdb.c`：
+
+```c
+ quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
+```
+
+数据结构如下：
+
+![quicklist-1](./images/struct/quicklist-1.jpg)
 
 ### STREAM
 
 TODO
 
-## 2.  String类型
+## 内部数据结构
+
+### Dict
+
+SKIPLIST
+
+## Redis数据类型
+
+> 相对用户而言，是面向用户的
+
+### 3.  String类型
 
 > 即当redisObject->type = String 时
 
-###　2.1 INT
+#### INT
 
 > redisObject->encoding=OBJ_ENCODING_INT
 

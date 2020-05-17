@@ -31,11 +31,17 @@
 #ifndef __INTSET_H
 #define __INTSET_H
 #include <stdint.h>
-
+/** intset定义
+ * 1、由于intset是在内存上直接操作赋值，并且所存储的值都超过了一个字节，所以需要考虑大小端的问题：
+ *   (1)大端模式，是指数据的高字节保存在内存的低地址中，而数据的低字节保存在内存的高地址中，这样的存储模式有点儿类似于把数据当作字符串顺序处理：地址由小向大增加，而数据从高位往低位放；这和我们的阅读习惯一致。
+ *   (2)小端模式，是指数据的高字节保存在内存的高地址中，而数据的低字节保存在内存的低地址中，这种存储模式将地址的高低和数据位权有效地结合起来，高地址部分权值高，低地址部分权值低。
+ * 2、redis 的所有存储方式都是小端存储，在endianconv.h中有一段大小端的宏定义，如果当前cpu的字节序为大端就进行相应的转换
+ * */
 typedef struct intset {
-    uint32_t encoding;
-    uint32_t length;
-    int8_t contents[];
+    uint32_t encoding;  //编码方式：由最大的一个数决定的，如果有一个数是int64，那么整个inset的编码都是int64。
+    uint32_t length;    //长度：整数个数
+    int8_t contents[];  //集合内容：按升序排列数组
+
 } intset;
 
 intset *intsetNew(void);
