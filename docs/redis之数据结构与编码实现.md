@@ -2,17 +2,15 @@
 
 在讲Redis的数据结构与编码之前，我们先来看看redis首页对自自己的[介绍 ](http://www.redis.cn/)：
 
-> redis 是一个开源（BSD许可）的，内存中的数据结构存储系统，它可以用作数据库、缓存和消息中间件。 它支持多种类型的数据结构，如 [字符串（strings）](http://www.redis.cn/topics/data-types-intro.html#strings)， [散列（hashes）](http://www.redis.cn/topics/data-types-intro.html#hashes)， [列表（lists）](http://www.redis.cn/topics/data-types-intro.html#lists)， [集合（sets）](http://www.redis.cn/topics/data-types-intro.html#sets)， [有序集合（sorted sets）](http://www.redis.cn/topics/data-types-intro.html#sorted-sets) 与范围查询， [bitmaps](http://www.redis.cn/topics/data-types-intro.html#bitmaps)， [hyperloglogs](http://www.redis.cn/topics/data-types-intro.html#hyperloglogs) 和[地理空间（geospatial）](http://www.redis.cn/commands/geoadd.html) 索引半径查询。 Redis 内置了 [复制（replication）](http://www.redis.cn/topics/replication.html)，[LUA脚本（Lua scripting）](http://www.redis.cn/commands/eval.html)， [LRU驱动事件（LRU eviction）](http://www.redis.cn/topics/lru-cache.html)，[事务（transactions）](http://www.redis.cn/topics/transactions.html) 和不同级别的 [磁盘持久化（persistence）](http://www.redis.cn/topics/persistence.html)， 并通过 [Redis哨兵（Sentinel）](http://www.redis.cn/topics/sentinel.html)和自动 [分区（Cluster）](http://www.redis.cn/topics/cluster-tutorial.html)提供高可用性（high availability）。
+> redis 是一个开源（BSD许可）的，**内存**中的**数据结构**存储系统，它可以用作**数据库**、**缓存**和**消息中间件**。 它支持多种类型的数据结构，如 [字符串（strings）](http://www.redis.cn/topics/data-types-intro.html#strings)， [散列（hashes）](http://www.redis.cn/topics/data-types-intro.html#hashes)， [列表（lists）](http://www.redis.cn/topics/data-types-intro.html#lists)， [集合（sets）](http://www.redis.cn/topics/data-types-intro.html#sets)， [有序集合（sorted sets）](http://www.redis.cn/topics/data-types-intro.html#sorted-sets) 与范围查询， [bitmaps](http://www.redis.cn/topics/data-types-intro.html#bitmaps)， [hyperloglogs](http://www.redis.cn/topics/data-types-intro.html#hyperloglogs) 和[地理空间（geospatial）](http://www.redis.cn/commands/geoadd.html) 索引半径查询。 Redis 内置了 [复制（replication）](http://www.redis.cn/topics/replication.html)，[LUA脚本（Lua scripting）](http://www.redis.cn/commands/eval.html)， [LRU驱动事件（LRU eviction）](http://www.redis.cn/topics/lru-cache.html)，[事务（transactions）](http://www.redis.cn/topics/transactions.html) 和不同级别的 [磁盘持久化（persistence）](http://www.redis.cn/topics/persistence.html)， 并通过 [Redis哨兵（Sentinel）](http://www.redis.cn/topics/sentinel.html)和自动 [分区（Cluster）](http://www.redis.cn/topics/cluster-tutorial.html)提供高可用性（high availability）。
 
-上面短短一句，包含了太多的内容。每一个名词基本都对应一个知识点，可以详细的展开写好多页的文字。这里我们只关注数据结构相关部分。
+上面短短一句话，包含了太多太多的内容。每一个名词基本都对应一个丰富的知识点，如果详细的展开讲，估计可以讲好久。其实整个redis最核心的知识，也基本都在上面这段描述里了。
 
-- redis中一个k-v类型的数据结构(上面的话语好像没有说明这点，但大家都知道滴，因为redis就是`REmote DIctionary Server(远程字典服务器)`简称)
+这里我们只关注我们关心的数据结构相关部分。
 
-  - 所以需要一个K-V存储结构，你来一对K-V，我就存一对K-V。这对应的redis的DB实现。默认采用Dict（字典）这种数据结构。所以，Dict这种数据结构可以用来实现DB。
+- redis中一个k-v类型的数据结构(上面的话语好像没有说明这点，但大家都知道滴，因为redis就是`REmote DIctionary Server`简称，翻译过来就是"远程字典服务器")。因为是一个K-V结构的字典服务器，所以理所当然的使用字典(dict)这一数据结构实现rdb(redis db)。即redis中dict这种数据结构可以用来实现DB。
 
-- redis的DB支持多种数据类型,即dict需要支持多种数据类型，所以我们需要有不同的类型。注意：此处的类型是向向用户的，所以有String hash,list,set,zset,bitmap,hyperloglog和geospatial等。
-
-- 那么每一种面向用户类型的数据结构，我们怎么实现？我们有什么办法可以节省内存呢？
+- redis的DB支持多种数据类型,即dict需要支持多种数据类型，所以我们需要有不同的类型。注意：此处的类型是向向用户的，所以有String hash,list,set,zset,bitmap,hyperloglog和geospatial等。那么每一种面向用户类型的数据结构，我们怎么实现？我们有什么办法可以节省内存呢？
 
   - 具体实现讲真简单，这些数据结构都已经很成熟，没有什么特殊。那有没有什么可以优化的空间呢？有，当然有，那就是在不同的场景下，对具体的类型编码不同，以实现内存的优化。
   - 我们通过redisObject这种结构来实现：
@@ -37,7 +35,51 @@
 
 **总结：redis提供了多种数据类型供用户使用，为了最优的使用内存，同一种数据类型会根据实际情况采用多种不同的类型编码**。
 
+## 内存优化思想
 
+> 内存优化目标：
+>
+> 1、占用内存少
+>
+> 2、碎片率小
+>
+> 我们也可以自己思考，如果是我们自己，如果实现上面的目标?
+>
+> 在redis中，通**"约定"**相应的规则，然后加上相应的数据结构来实现。
+
+下图是最常用的一种方式：
+
+![memory-1](./images/struct/memory-1.png)
+
+**len**:表示节点数，保存元素数量
+
+**size**:占用字节数
+
+**val1-len**: 其中val1表示第1个元素，len表第1个元素占用字节数，合起来就是第1个元素占用字节数。同理val2-len表示第2个字节数长茺。
+
+**val1**:第一个元素具体的值。
+
+1、定义一个char 数组 demo，约定第1个字节用来保存整个数组的长度(元素个数)。
+
+2、第2个字节，约定使用一个字节来表示接下来的val1的长度(字节)，那么，val最大值可以保存256Bytes。
+
+3、根据val1-len，可以推算出val2-len起始地址。*val2-len = *len + 1 +1+ val-len。即demo的起始地址 *len ，加上len本身占用的1个字节，加上val1-len本身占用的一个字节 ，加上val1内容占用的val1-len个字节。
+
+4、当遇到0xFF表示结束（ 这个是约定，可以自己定义）。
+
+> 上面的len,val1-len等长度是1字节还是多字节都可以约定，根据自己的需要扩展。这样的结构实现了内存连续，并且使用空间少(省略了prev,next指针)。并且求长度为1
+
+我们可以在上述最简单的实现扩展：
+
+![memory-2](./images/struct/memory-2.jpg)
+
+1、添加了size和tail规范。size记录整个char数组占用字节数。tail直接向tail节点(指向具体的val或者是val-header，可以根据实际情况来定。因为定义好了规范，可以通过地址偏移计算得出相关地址)。
+
+2、val1-header：即节点头。这个头我们又可以按照这个思想，约定很多内容。比如redis常用的，当value长度小于254时，只用一个字节(假如叫val-len)表示value长度。当value长度大于254时，val-len始终等于254,然后用后面4个字节表示value长度。
+
+3、val-headerK ,当然也可以保存前置节点的len和val-header-len(头部长度)。那么就可以实现双向链表操作了。前后遍列均可以。
+
+4、val可以为任何值，指针，结构体，普通字符，数字等
 
 ## 1. SDS
 
@@ -302,7 +344,7 @@ typedef struct redisObject {
 
 
 
-## 3、编码方式实现
+## 3. 编码方式实现
 
 > 在redis中，编码方式的实现是基于SDS + redisObject基础之上
 
@@ -869,12 +911,6 @@ typedef struct quicklistEntry {
 ### STREAM
 
 TODO
-
-## 内部数据结构
-
-### Dict
-
-SKIPLIST
 
 ## Redis数据类型
 
