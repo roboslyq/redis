@@ -908,9 +908,86 @@ typedef struct quicklistEntry {
 
 ![quicklist-1](./images/struct/quicklist-1.jpg)
 
-### STREAM
+### 3.11 STREAM
 
-TODO
+**官方定义**
+
+> 1、提供了一组允许消费者以阻塞的方式等待生产者向Stream中发送的新消息，此外还有一个名为**消费者组**的概念。消费者组最早是由名为Kafka（TM）的流行消息系统引入的。
+>
+> Redis用完全不同的术语重新实现了一个相似的概念，但目标是相同的：允许一组客户端相互配合来消费同一个Stream的不同部分的消息。
+
+其实，PUB/SUB在List中就能实现了，对应的指令是BLPOP或者BRPOP，只是这个比较简陋（没有分组，每个元素只能被一个客户端消费1次）。
+
+**官方源码**
+
+`stream`:Stream定义
+
+```c
+typedef struct stream {
+    rax *rax;               /* The radix tree holding the stream. */
+    uint64_t length;        /* Number of elements inside this stream. */
+    streamID last_id;       /* Zero if there are yet no items. */
+    rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+} stream;
+
+typedef struct streamID {
+    uint64_t ms;        /* Unix time in milliseconds. */
+    uint64_t seq;       /* Sequence number. */
+} streamID;
+```
+
+`streamCG`:Stream分组
+
+```c
+/* Consumer group. */
+typedef struct streamCG {
+    streamID last_id;       /* Last delivered (not acknowledged) ID for this
+                               group. Consumers that will just ask for more
+                               messages will served with IDs > than this. */
+    rax *pel;               /* Pending entries list. This is a radix tree that
+                               has every message delivered to consumers (without
+                               the NOACK option) that was yet not acknowledged
+                               as processed. The key of the radix tree is the
+                               ID as a 64 bit big endian number, while the
+                               associated value is a streamNACK structure.*/
+    rax *consumers;         /* A radix tree representing the consumers by name
+                               and their associated representation in the form
+                               of streamConsumer structures. */
+} streamCG;
+```
+
+
+
+`streamConsumer`:消费者
+
+```c
+typedef struct streamConsumer {
+    mstime_t seen_time;         /* Last time this consumer was active. */
+    sds name;                   /* Consumer name. This is how the consumer
+                                   will be identified in the consumer group
+                                   protocol. Case sensitive. */
+    rax *pel;                   /* Consumer specific pending entries list: all
+                                   the pending messages delivered to this
+                                   consumer not yet acknowledged. Keys are
+                                   big endian message IDs, while values are
+                                   the same streamNACK structure referenced
+                                   in the "pel" of the conumser group structure
+                                   itself, so the value is shared. */
+} streamConsumer;
+```
+
+`streamNACK`:已经消费但未回复ACK的信息
+
+```c
+typedef struct streamNACK {
+    mstime_t delivery_time;     /* Last time this message was delivered. */
+    uint64_t delivery_count;    /* Number of times this message was delivered.*/
+    streamConsumer *consumer;   /* The consumer this message was delivered to
+                                   in the last delivery. */
+} streamNACK;
+```
+
+
 
 ## Redis数据类型
 

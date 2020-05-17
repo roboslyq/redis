@@ -668,7 +668,7 @@ typedef struct clientReplyBlock {
 typedef struct redisDb {
         dict *dict;                 /* The keyspace for this DB 当前DB所有Key集合*/
         dict *expires;              /* Timeout of keys with a timeout set 当前DB所有设置了expired time的key集合*/
-        dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) 处于阻塞状态的键和相应的client（主要用于List类型的阻塞操作）*/
+        dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) 处于阻塞状态的键和相应的client（主要用于List类型的阻塞操作BLPOP/BRPOP等）*/
         dict *ready_keys;           /* Blocked keys that received a PUSH 准备好数据可以解除阻塞状态的键和相应的client*/
         dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS 被监听的KEY，用于事务处理：MULTI和EXEC 用于标记一个事务块的开始。
                                      * 事务块内的多条命令会按照先后顺序被放进一个队列当中，最后由 EXEC 命令原子性(atomic)地执行*/

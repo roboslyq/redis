@@ -161,6 +161,9 @@ void handleBlockedClientsTimeout(void) {
  * Note that if the timeout is zero (usually from the point of view of
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
+/** 阻塞的获取元素 ：依赖于文件事件实现阻塞，因此你不会看到有线程阻塞的代码
+ * 只有改变timeout的值，小于时直接返回异常。
+ * */
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
     long double ftval;

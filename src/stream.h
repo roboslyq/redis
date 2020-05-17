@@ -48,6 +48,7 @@ typedef struct streamIterator {
 } streamIterator;
 
 /* Consumer group. */
+/* 消息组分组*/
 typedef struct streamCG {
     streamID last_id;       /* Last delivered (not acknowledged) ID for this
                                group. Consumers that will just ask for more
@@ -64,6 +65,7 @@ typedef struct streamCG {
 } streamCG;
 
 /* A specific consumer in a consumer group.  */
+/* 分组group中的一个具体消费者 */
 typedef struct streamConsumer {
     mstime_t seen_time;         /* Last time this consumer was active. */
     sds name;                   /* Consumer name. This is how the consumer
@@ -87,7 +89,9 @@ typedef struct streamNACK {
 } streamNACK;
 
 /* Stream propagation informations, passed to functions in order to propagate
- * XCLAIM commands to AOF and slaves. */
+ * XCLAIM commands to AOF and slaves.
+ * 传播XCLAIM指令到AOF和slave服务器
+ * */
 typedef struct streamPropInfo {
     robj *keyname;
     robj *groupname;

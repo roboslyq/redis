@@ -690,11 +690,21 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
 }
 
 /* Blocking RPOP/LPOP */
+/** 阻塞的 RPOP或者LPOP
+ * 1、redis是单进程的，所以redis的阻塞操作实现不是真正的阻塞服务端线程
+ * 2、redis的阻塞依赖于文件事件循环
+ * 3、redis的阻塞依赖于server.h->redisDb->*blocking_keys和server.h->redisDb->*ready_keys。
+ *    当对应的list没有数据返回时，会将client放入blocking_keys中，一旦数据准备好，再将其放入ready_keys中
+ * 4、服务端在每次的事件循环当中处理完客户端请求之后，会遍历ready_keys链表，并从blocking_keys链表当中找到对应的client，
+ *    进行响应，整个过程并不会阻塞事件循环的执行。
+ *
+ * 所以， 总的来说，redis server是通过ready_keys和blocking_keys两个链表和事件循环来处理阻塞事件的。
+ * */
 void blockingPopGenericCommand(client *c, int where) {
     robj *o;
     mstime_t timeout;
     int j;
-
+    /**获取一个元素，直接超时或者元素正常返回(阻塞式，PUB/SUB模式)     */
     if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
@@ -745,7 +755,11 @@ void blockingPopGenericCommand(client *c, int where) {
     /* If the list is empty or the key does not exists we must block */
     blockForKeys(c,BLOCKED_LIST,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
-
+/**
+ * 1、阻塞命令处理，可以实现简单的发布订阅模式。
+ * 不建议使用此数据结构袜Pub/Sub模式，因为当前已经有用此的专门数据结构：Stream
+ * 2、blpop指blocking left pop
+ * */
 void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
