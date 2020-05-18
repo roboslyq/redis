@@ -1,41 +1,52 @@
 # Redis之数据结构与编码实现
 
-在讲Redis的数据结构与编码之前，我们先来看看redis首页对自自己的[介绍 ](http://www.redis.cn/)：
+## Redis简介
+
+在讲Redis的数据结构与编码之前，我们先来看看redis首页(Redis中文网)对自己的[介绍 ](http://www.redis.cn/)：
 
 > redis 是一个开源（BSD许可）的，**内存**中的**数据结构**存储系统，它可以用作**数据库**、**缓存**和**消息中间件**。 它支持多种类型的数据结构，如 [字符串（strings）](http://www.redis.cn/topics/data-types-intro.html#strings)， [散列（hashes）](http://www.redis.cn/topics/data-types-intro.html#hashes)， [列表（lists）](http://www.redis.cn/topics/data-types-intro.html#lists)， [集合（sets）](http://www.redis.cn/topics/data-types-intro.html#sets)， [有序集合（sorted sets）](http://www.redis.cn/topics/data-types-intro.html#sorted-sets) 与范围查询， [bitmaps](http://www.redis.cn/topics/data-types-intro.html#bitmaps)， [hyperloglogs](http://www.redis.cn/topics/data-types-intro.html#hyperloglogs) 和[地理空间（geospatial）](http://www.redis.cn/commands/geoadd.html) 索引半径查询。 Redis 内置了 [复制（replication）](http://www.redis.cn/topics/replication.html)，[LUA脚本（Lua scripting）](http://www.redis.cn/commands/eval.html)， [LRU驱动事件（LRU eviction）](http://www.redis.cn/topics/lru-cache.html)，[事务（transactions）](http://www.redis.cn/topics/transactions.html) 和不同级别的 [磁盘持久化（persistence）](http://www.redis.cn/topics/persistence.html)， 并通过 [Redis哨兵（Sentinel）](http://www.redis.cn/topics/sentinel.html)和自动 [分区（Cluster）](http://www.redis.cn/topics/cluster-tutorial.html)提供高可用性（high availability）。
 
-上面短短一句话，包含了太多太多的内容。每一个名词基本都对应一个丰富的知识点，如果详细的展开讲，估计可以讲好久。其实整个redis最核心的知识，也基本都在上面这段描述里了。
+上面的这一段描述虽然不很长，但基本上把redis主要特性都说清楚。上面的每一个名词基本都对应一个知识点，如果深究，每一个都可以写一篇很长的文章。
 
-这里我们只关注我们关心的数据结构相关部分。
+在这里我们只关注我们关心的数据结构相关部分。
 
 - redis中一个k-v类型的数据结构(上面的话语好像没有说明这点，但大家都知道滴，因为redis就是`REmote DIctionary Server`简称，翻译过来就是"远程字典服务器")。因为是一个K-V结构的字典服务器，所以理所当然的使用字典(dict)这一数据结构实现rdb(redis db)。即redis中dict这种数据结构可以用来实现DB。
+- redis的DB支持多种数据类型,即dict需要支持多种数据类型，所以我们需要有不同的类型。注意：此处的类型是向向用户的，所以有String hash,list,set,zset,bitmap,hyperloglog和geospatial等。
+- 即然redis支持多种数据型 ，那么每种类型具体怎么编码实现，什么实现文案可以节省内存？什么文案可以减少内存碎片？什么方案可以快速查询对应的key-value？
 
-- redis的DB支持多种数据类型,即dict需要支持多种数据类型，所以我们需要有不同的类型。注意：此处的类型是向向用户的，所以有String hash,list,set,zset,bitmap,hyperloglog和geospatial等。那么每一种面向用户类型的数据结构，我们怎么实现？我们有什么办法可以节省内存呢？
+### 节省内存
 
-  - 具体实现讲真简单，这些数据结构都已经很成熟，没有什么特殊。那有没有什么可以优化的空间呢？有，当然有，那就是在不同的场景下，对具体的类型编码不同，以实现内存的优化。
-  - 我们通过redisObject这种结构来实现：
+关键点，对每一种数据类型，选择相应的数据结构去实现，这样已经能达到节省内存的效果。但是还不够，即使是同一种数据类型，在数据量大和数据量小，保存的数据大小等不同场景下表现都不一样。那么能不能做到对一种数据类型实现多种编码，根据具体的实际情况使用不同的编码呢？当然可以，在redis中抽象出了redisObject这个结构体。redis的所有的key—value都会经过此结构包装访问。而不是直接访问。
 
-  ```c
-  typedef struct redisObject {
-      unsigned type:4;		//（4Byte）
-      unsigned encoding:4;	//（4Byte）
-      unsigned lru:LRU_BITS;  /* LRU time (relative to global lru_clock) or
-                               * LFU data (least significant 8 bits frequency
-                               * and most significant 16 bits access time). 
-                               */
-      					  //（4Byte）
-      int refcount;		  //（4Byte）
-      void *ptr;
-  } robj;
-  ```
+```c
+/*
+ * =======>核心类，通过type与encoding组合，实现不同type的不同场景的不同编码，从而实现内存的存储优化。
+ * 1、对五种基本对象（string、hash、list、set、sort set）进行包装。
+ * 2、Redis没有直接使用（string、hash、list、set、sort set）这5类数据结构来实现键值对的数据库，而是统一通过redisObject实现。
+ * */
+typedef struct redisObject {
+    unsigned type:4;// 对象的类型，也就是我们说的 string、list、hash、set、zset中的一种，可以使用命令 TYPE key 来查看。
+    unsigned encoding:4;/* 1、encoding属性记录了队形所使用的编码(底层数据结构)，即这个对象底层使用哪种数据结构实现。详情见下面定义的OBJ_ENCODING_XXX
+                        * 2、encoding可以根据不同的使用场景来为一个对象设置不同的编码，从而优化在某一场景下的效率，极大的提升了 Redis 的灵活性和效率。
+                        * 3、可以通过函数strEncoding()来获取具体的编码方式
+                        * */
+    // 对象最后一次被访问的时间
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits access time). */
+    // 键值对对象的引用统计。当此值为 0 时，回收对象。
+    int refcount;
+    // 指向底层实现数据结构的指针,就是实际存放数据的地址。具体实现由 type + encoding组合实现
+    void *ptr;
+} robj;
+```
 
-  > type对应着用户的类型比如string,list等，encoding对应着具体的编码实现。因此，即使是一个string，在长短不一样，或者是纯数字“123”这样的string，我们可以采用具体不同的编码方式来存储，从而实现内存优化。
-  >
-  > 具体的细节下面再讲。
+> type对应着用户的类型比如string,list等，encoding对应着具体的编码实现。因此，即使是一个string，在长短不一样，或者是纯数字“123”这样的string，我们可以采用具体不同的编码方式来存储，从而实现内存优化。具体的细节下面再讲。
+>
 
 **总结：redis提供了多种数据类型供用户使用，为了最优的使用内存，同一种数据类型会根据实际情况采用多种不同的类型编码**。
 
-## 内存优化思想
+### 内存优化
 
 > 内存优化目标：
 >
@@ -910,13 +921,45 @@ typedef struct quicklistEntry {
 
 ### 3.11 STREAM
 
-**官方定义**
+**Rax官方定义**
 
 > 1、提供了一组允许消费者以阻塞的方式等待生产者向Stream中发送的新消息，此外还有一个名为**消费者组**的概念。消费者组最早是由名为Kafka（TM）的流行消息系统引入的。
 >
 > Redis用完全不同的术语重新实现了一个相似的概念，但目标是相同的：允许一组客户端相互配合来消费同一个Stream的不同部分的消息。
 
 其实，PUB/SUB在List中就能实现了，对应的指令是BLPOP或者BRPOP，只是这个比较简陋（没有分组，每个元素只能被一个客户端消费1次）。
+
+**Radix算法(维基百科)**
+
+> 在[计算机科学](https://zh.wikipedia.org/wiki/计算机科学)中，**基数树**（Radix 也叫**基数特里树**或**压缩前缀树**）是一种数据结构，是一种更节省空间的[Trie](https://zh.wikipedia.org/wiki/Trie)（前缀树），其中作为唯一子节点的每个节点都与其父节点合并，边既可以表示为元素序列又可以表示为单个元素。 因此每个内部节点的子节点数最多为基数树的基数*r* ，其中*r*为正整数，*x*为2的幂，*x*≥1，这使得基数树更适用于对于较小的集合（尤其是字符串很长的情况下）和有很长相同前缀的字符串集合。
+>
+> 基数树的查找方式也与常规树不同（常规的树查找一开始就对整个键进行比较，直到不相同为止），基数树查找时节点时，对于节点上的键都按块进行逐块比较，其中该节点中块的长度是基数*r*； 当*r*为2时，基数树为二进制的（即该节点的键的长度为1比特位），能最大程度地减小树的深度来最小化稀疏性（最大限度地合并键中没有分叉的节点）。 当*r*≥4且为2的整数次幂时，基数树是r元基数树，能以潜在的稀疏性为代价降低基数树的深度。
+
+![rax-0](./images/struct/radix-0.png)
+
+现在对上图进行简单介绍：
+
+1、比如说，我要找key = romane对应的value。第1步，r在根据节点 第2步，OM在左子节点，第三步，AN在右子节点，第4步e在左子节点。至此key=romane已经遍列完成，那么，最后一个字符e所在的节点即保存着对应的value值(或者指针，看具体实现)。
+
+现以redis源码中的例子，对radix算法作一个简要的说明。
+
+**情景1：原始未压缩**
+
+保存了3个Key:foo,foobar,footer
+
+![rax-1](./images/struct/rax-1.jpg)
+
+> 注意：radix相当于多叉树，根节点可以有多个，比如26个英文字母。其实，radix可以类比文件夹的绝对路径，路径中的每一层目录就是一个节点。路径中对应的具体文件即对应节点的值。
+
+**压缩之后**
+
+![rax-1](./images/struct/rax-2.jpg)
+
+**压缩之后新插入可能需要解压**
+
+![rax-1](./images/struct/rax-3.jpg)
+
+
 
 **官方源码**
 
@@ -1023,21 +1066,25 @@ typedef struct raxStack {
 } raxStack;
 ```
 
+
+
 **rax结构(源码注释)**
 
-**原始未压缩**
+**数据结构**
 
-保存了3个Key:foo,foobar,footer
+![rax-1](./images/struct/rax-4.jpg)
 
-![rax-1](./images/struct/rax-1.jpg)
+![rax-5](./images/struct/rax-5.png)
 
-**压缩之后**
+![rax-6](./images/struct/rax-6.png)
 
-![rax-1](./images/struct/rax-2.jpg)
 
-**压缩之后新插入可能需要解压**
 
-![rax-1](./images/struct/rax-3.jpg)
+
+
+
+
+
 
 ## Redis数据类型
 

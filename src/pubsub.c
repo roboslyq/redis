@@ -396,7 +396,10 @@ void punsubscribeCommand(client *c) {
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
-
+/**
+ * PUB/SUB实现
+ * @param c
+ */
 void publishCommand(client *c) {
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
