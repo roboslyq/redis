@@ -49,6 +49,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
  * ----------------------------------------------------------------------- */
 
 /* Create a new stream data structure. */
+/** 创建一个Stream */
 stream *streamNew(void) {
     stream *s = zmalloc(sizeof(*s));
     s->rax = raxNew();
@@ -1089,12 +1090,15 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
 
 /* Look the stream at 'key' and return the corresponding stream object.
  * The function creates a key setting it to an empty stream if needed. */
+/** 根据key在DB中查找对应的Stream,如果不存在就创建一个 */
 robj *streamTypeLookupWriteOrCreate(client *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
+        //创建一个Stream
         o = createStreamObject();
         dbAdd(c->db,key,o);
     } else {
+        //不是OBJ_STREAM，返回异常
         if (o->type != OBJ_STREAM) {
             addReply(c,shared.wrongtypeerr);
             return NULL;
@@ -1180,7 +1184,7 @@ void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
 /* XADD key [MAXLEN [~|=] <count>] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     streamID id;
-    int id_given = 0; /* Was an ID different than "*" specified? */
+    int id_given = 0;       /* Was an ID different than "*" specified? */
     long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
                                the maxium length is not applied verbatim. */
@@ -1241,6 +1245,7 @@ void xaddCommand(client *c) {
     /* Lookup the stream at key. */
     robj *o;
     stream *s;
+    /**  根据Key查找对应的Stream，如果没有找到则创建一个新的 */
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
 

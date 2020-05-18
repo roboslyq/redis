@@ -987,7 +987,57 @@ typedef struct streamNACK {
 } streamNACK;
 ```
 
+**rax( 基数树 )结构**
 
+>  	在计算机科学中，基数树，或称压缩前缀树，是一种更节省空间的Trie（[前缀树](https://baike.baidu.com/item/前缀树/2501595)）。对于基数树的每个节点，如果该节点是确定的子树的话，就和父节点合并。基数树可用来构建关联数组。 用于IP 路由。 信息检索中用于文本文档的倒排索引。 
+
+```c
+/** rax结构体*/
+typedef struct rax {
+    raxNode *head;
+    uint64_t numele;
+    uint64_t numnodes;
+} rax;
+```
+
+```c
+/** rax节点 */
+typedef struct raxNode {
+    uint32_t iskey:1;     /* Does this node contain a key? */
+    uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
+    uint32_t iscompr:1;   /* Node is compressed. */
+    uint32_t size:29;     /* Number of children, or compressed string len. */
+    unsigned char data[];
+} raxNode;
+```
+
+```c
+/** rax栈 */
+typedef struct raxStack {
+    void **stack; /* Points to static_items or an heap allocated array. */
+    size_t items, maxitems; /* Number of items contained and total space. */
+    /* Up to RAXSTACK_STACK_ITEMS items we avoid to allocate on the heap
+     * and use this static array of pointers instead. */
+    void *static_items[RAX_STACK_STATIC_ITEMS];
+    int oom; /* True if pushing into this stack failed for OOM at some point. */
+} raxStack;
+```
+
+**rax结构(源码注释)**
+
+**原始未压缩**
+
+保存了3个Key:foo,foobar,footer
+
+![rax-1](./images/struct/rax-1.jpg)
+
+**压缩之后**
+
+![rax-1](./images/struct/rax-2.jpg)
+
+**压缩之后新插入可能需要解压**
+
+![rax-1](./images/struct/rax-3.jpg)
 
 ## Redis数据类型
 

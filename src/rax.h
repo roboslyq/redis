@@ -33,12 +33,13 @@
 
 #include <stdint.h>
 
-/* Representation of a radix tree as implemented in this file, that contains
+/* Representation of a radix tree(基数树) as implemented in this file, that contains
  * the strings "foo", "foobar" and "footer" after the insertion of each
  * word. When the node represents a key inside the radix tree, we write it
  * between [], otherwise it is written between ().
+ * 当那个节点代表一个Key时，使用[]表示，具体key值是当前节点所在的路径。否则使用(）表示。
  *
- * This is the vanilla representation:
+ * This is the vanilla(简朴，平常) representation:
  *
  *              (f) ""
  *                \
@@ -60,6 +61,7 @@
  * and only the link to the node representing the last character node is
  * provided inside the representation. So the above representation is turend
  * into:
+ * 只有一个孩子节点时，可以对前面的节点进行压缩。比如f-o-o可以压缩为“foo”
  *
  *                  ["foo"] ""
  *                     |
@@ -74,7 +76,7 @@
  * "node splitting" operation is needed, since the "foo" prefix is no longer
  * composed of nodes having a single child one after the other. This is the
  * above tree and the resulting node splitting after this event happens:
- *
+ * 压缩带来了复杂度：如果新加入元素可以会需要“解压”这个操作。比如之前"foobar",再插入一个"first"，那么foobar需要解压。
  *
  *                    (f) ""
  *                    /
@@ -92,14 +94,27 @@
  * is created (the chain must also not include nodes that represent keys),
  * it must be compressed back into a single node.
  *
+ * 1、radix Tree(基数树) 其实就差不多是传统的二叉树，只是在寻找方式上，利用比如一个unsigned int的类型的每一个比特位作为树节点的判断。
+ * 可以这样说，比如一个数1000101010101010010101010010101010，那么按照Radix 树的插入就是在根节点，
+ * 如果遇到0，就指向左节点，如果遇到1就指向右节点，在插入过程中构造树节点，在删除过程中删除树节点
+ * （使用一个比特位判断，会使树的高度过高，非叶节点过多。故在实际应用中，我们一般是使用多个比特位作为树节点的判断，
+ * 但多比特位会使节点的子节点槽变多，增大节点的体积，一般选用2个或4个比特位作为树节点即可） 
+ * 2、作用
+ *      基数树（radix tree）是将long整数与指针键值相关联的机制，它存储有效率，并且可快速查询，用于整数值与指针的映射，对于长整型数据的映射，
+ *      如何解决Hash冲突和Hash表大小的设计是一个很头疼的问题，利用radix树可以根据一个长整型（比如一个长ID）快速查找到其对应的对象指针。
+ *      这比用hash映射来的简单，也更节省空间，使用hash映射hash函数难以设计，不恰当的hash函数可能增大冲突，或浪费空间。
+ * 3、对比
+ *      基数树和字典树的实现机制很像，都是将key拆分成一部分映射到树形结构中，基数树是将key按指针地址bit位拆分，而字典树是将key的字符串值按字符拆分。
+ *      但是基数树的层高是相对固定的(因为指针地址的bit位是固定的)，而字典树的高度与字符串的长度相关，而树的高度决定了树的空间占用情况，所以基数树明显更节约空间。
  */
 
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
+/** rax节点，sizeof(raxNode) = 4 */
 typedef struct raxNode {
-    uint32_t iskey:1;     /* Does this node contain a key? */
-    uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
-    uint32_t iscompr:1;   /* Node is compressed. */
-    uint32_t size:29;     /* Number of children, or compressed string len. */
+    uint32_t iskey:1;     /* Does this node contain a key?  当前节点是不是包含key?没有key的是根节点*/
+    uint32_t isnull:1;    /* Associated value is NULL (don't store it). 当前节点是不是空？中间节点都是空的*/
+    uint32_t iscompr:1;   /* Node is compressed. 当前节点是不是压缩节点？ */
+    uint32_t size:29;     /* Number of children, or compressed string len. 如果当前节点不是压缩节点，则保存子节点的数量，如果是压缩节点，则保存压缩字符串的长度 (isCompressed) byte[] */
     /* Data layout is as follows:
      *
      * If node is not compressed we have 'size' bytes, one for each children
@@ -127,19 +142,21 @@ typedef struct raxNode {
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
+    /**  路由键、子节点指针、value */
     unsigned char data[];
 } raxNode;
-
+/** rax结构体*/
 typedef struct rax {
-    raxNode *head;
-    uint64_t numele;
-    uint64_t numnodes;
+    raxNode *head;      //根节点
+    uint64_t numele;    //元素数量
+    uint64_t numnodes;  //节点数量(节点不一定是元素，但元素一定是节点)
 } rax;
 
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
  * a list of parent nodes to the caller. The nodes do not have a "parent"
  * field for space concerns, so we use the auxiliary stack when needed. */
 #define RAX_STACK_STATIC_ITEMS 32
+/** 对树进行遍历 */
 typedef struct raxStack {
     void **stack; /* Points to static_items or an heap allocated array. */
     size_t items, maxitems; /* Number of items contained and total space. */
