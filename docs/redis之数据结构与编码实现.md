@@ -329,7 +329,7 @@ typedef struct redisObject {
 /** 对象类型对应的编码定义，与struct redisObject中的encoding对应 */
 #define OBJ_ENCODING_RAW 0     /* Raw representation 简单动态字符串*/
 #define OBJ_ENCODING_INT 1     /* Encoded as integer Long类型整数*/
-#define OBJ_ENCODING_HT 2      /* Encoded as hash table HashTable简写，即字典*/
+#define OBJ_ENCODING_HT 2      /*  Encoded as hash table HashTable简写，即字典*/
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist 压缩列表*/
@@ -342,16 +342,15 @@ typedef struct redisObject {
 
 > 由对象类型 + 对象编码 决定一种具体的编码实现。
 
-| 数据类型              | 少量数据 | 一般情况   | 特殊情况 |
-| --------------------- | -------- | ---------- | -------- |
-| <B>String</b>         | EMBSTR   | RAW        | INT      |
-| <B>List(旧 <3.2)</b>  | ZIPLIST  | LINKEDLIST |          |
-| <B>List(新 >=3.2)</b> |          | QUICKLIST  |          |
-| <B>Set</b>            |          | HT         | INTSET   |
-| <B>ZSet</b>           | ZIPLIST  | SKIPLIST   |          |
-| <B>Hash</b>           | ZIPLIST  | HT         |          |
-| <B>Modules</b>        | TODO     | TODO       |          |
-| <B>Stream</b>         | TODO     | TODO       |          |
+| 数据类型              | 是否有序 | 少量数据 | 一般情况                  | 特殊情况 |
+| --------------------- | -------- | -------- | ------------------------- | -------- |
+| <B>String</b>         | NA       | EMBSTR   | RAW                       | INT      |
+| <B>List(旧 <3.2)</b>  | 有序     | ZIPLIST  | LINKEDLIST                |          |
+| <B>List(新 >=3.2)</b> | 有序     |          | QUICKLIST                 |          |
+| <B>Set</b>            | 无序     |          | HT                        | INTSET   |
+| <B>ZSet</b>           | 有序     | ZIPLIST  | SKIPLIST(需要ZIPLIST结合) |          |
+| <B>Hash</b>           | 无序     | ZIPLIST  | HT                        |          |
+| <B>Stream</b>         |          |          | RADIX(基数树)             |          |
 
 
 
