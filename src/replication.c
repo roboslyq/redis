@@ -264,7 +264,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
-        // 将数据分发所有的从机
+        // 创建一个slave链表结构Iterator(遍列器)
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;

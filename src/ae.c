@@ -741,6 +741,7 @@ void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
+            //在sleep前进行相关处理，比如把输出缓冲区的数据进行输出
             eventLoop->beforesleep(eventLoop);
         //ae事件处理器( 0b1011)
         aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);

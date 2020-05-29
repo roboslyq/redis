@@ -197,6 +197,7 @@ void clientInstallWriteHandler(client *c) {
     /* Schedule the client to write the output buffers to the socket only
      * if not already done and, for slaves, if the slave can actually receive
      * writes at this stage. */
+    // 将client加入到等待写入返回值队列中，下次事件周期会进行返回值写入。
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
          (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
@@ -208,6 +209,7 @@ void clientInstallWriteHandler(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
+        // 设置标志位并且将client加入到 clients_pending_write 队列中
         listAddNodeHead(server.clients_pending_write,c);
     }
 }
@@ -239,31 +241,40 @@ void clientInstallWriteHandler(client *c) {
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns C_ERR no
  * data should be appended to the output buffers.
- * 通常在每个回复被创建时调用，如果函数返回 REDIS_ERR ，
- * 那么没有数据会被追加到输出缓冲区
+ * 判断对应的客户端是否需要返回数据，通常在每个回复被创建时调用，如果函数返回 REDIS_ERR ， 那么没有数据会被追加到输出缓冲区：
+ *       1、Lua 脚本执行的 client 则需要返回值；
+ *       2、如果客户端发送来 REPLY OFF 或者 SKIP 命令，则不需要返回值
+ *       3、如果是主从复制时的主实例 client，则不需要返回值；
+ *       4、当前是在 AOF loading 状态的假 client，则不需要返回值。
+ * prepareClientToWrite 函数，将客户端加入到了Redis 的等待写入返回值客户端队列中，也就是 clients_pending_write 队列。
+ * 3、请求处理的事件处理逻辑就结束了，等待 Redis 下一次事件循环处理时，将响应从输出缓冲区写入到 socket 中。
+ * 4、Redis 在两次事件循环之间会调用 beforeSleep 方法处理一些事情，而对 clients_pending_write 列表的处理就在其中。
  * */
 int prepareClientToWrite(client *c) {
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
-    // LUA 脚本环境所使用的伪客户端总是可写的
+    // 如果是 lua client 则直接OK
     if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
 
     /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
-    // 客户端是主服务器并且不接受查询，
-    // 那么它是不可写的，出错
+    //  客户端发来过 REPLY OFF 或者 SKIP 命令，不需要发送返回值
     if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
 
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
+    //master 作为client 向 slave 发送命令，不需要接收返回值
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return C_ERR;
-    // 无连接的伪客户端总是不可写的
+    // 无连接的伪客户端总是不可写的，即无返回值
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket, unless
      * it should already be setup to do so (it has already pending data). */
     // TODO 一般情况，为客户端套接字安装写处理器到事件循环
-    if (!clientHasPendingReplies(c)) clientInstallWriteHandler(c);
+    if (!clientHasPendingReplies(c)) {
+        // 将client加入到等待写入返回值队列中，下次事件周期会进行返回值写入。
+        clientInstallWriteHandler(c);
+    }
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
@@ -297,6 +308,8 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 }
 /**
  * 将回复对象（一个 SDS ）添加到 c->reply 回复链表中
+ * Redis 将存储等待返回的响应数据的空间，也就是输出缓冲区分成两部分，一个固定大小的 buffer 和一个响应内容数据的链表。
+ * 在链表为空并且 buffer 有足够空间时，则将响应添加到 buffer 中。如果 buffer 满了则创建一个节点追加到链表上。
  * @param c
  * @param s
  * @param len
@@ -349,11 +362,24 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
  * -------------------------------------------------------------------------- */
 
 /* Add the object 'obj' string representation to the client output buffer. */
+/** 1、普通客户端(应用程序非redis进程)执行命令后，会将具体的响应添加到output buffer中。
+ *  2、如果普通命令会产生dirty（即影响当前db中的k-v），需要进行主从复制时，将master执行的命令放入对应slave（client）的输出缓冲区中。注意是缓冲区
+ *  3、prepareClientToWrite 函数，将客户端加入到了Redis 的等待写入返回值客户端队列中，也就是 clients_pending_write 队列。
+ *     请求处理的事件处理逻辑就结束了，等待 Redis 下一次事件循环处理时，将响应从输出缓冲区写入到 socket 中。
+ *  4、Redis 在两次事件循环之间会调用 beforeSleep 方法处理一些事情，而对 clients_pending_write 列表的处理就在其中。
+ *  */
 void addReply(client *c, robj *obj) {
+    //判断客户端是否需要返回数据
     if (prepareClientToWrite(c) != C_OK) return;
-
+    //需要将响应内容添加到output buffer中
     if (sdsEncodedObject(obj)) {
+        /**
+         * Redis 将存储等待返回的响应数据的空间，也就是输出缓冲区分成两部分，一个固定大小的 buffer 和一个响应内容数据的链表。
+         * 在链表为空并且 buffer 有足够空间时，则将响应添加到 buffer 中。如果 buffer 满了则创建一个节点追加到链表上。
+         */
+       // 先尝试向固定buffer添加
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
+            //如果上面添加失败，在尝试添加到响应链表
             _addReplyProtoToList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
@@ -1407,7 +1433,8 @@ void sendReplyToClient(connection *conn) {
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
 /**
- * redis都是先将回复内容写到缓冲(client->buf和client->replu),然后handleClientsWithPendingWrite将缓冲区中的回复发送给client。
+ * 1、redis都是先将回复内容写到缓冲(client->buf和client->replu),然后handleClientsWithPendingWrite将缓冲区中的回复发送给client。
+ * 2、在ae事件中，beforeSleep进行处理
  * @return
  */
 int handleClientsWithPendingWrites(void) {
@@ -1913,8 +1940,9 @@ void processInputBufferAndReplicate(client *c) {
          * part of the replication stream, will be propagated to the
          * sub-replicas and to the replication backlog. */
         size_t prev_offset = c->reploff;
+        // ===>指令处理
         processInputBuffer(c);
-        // TODO 判断是否同步偏移量发生变化，则通知到后续的slave
+        // TODO 判断是否同步偏移量发生变化，则通知到后续的slave(进行主从复制)
         size_t applied = c->reploff - prev_offset;
         if (applied) {
             replicationFeedSlavesFromMasterStream(server.slaves,
@@ -3109,6 +3137,9 @@ int stopThreadedIOIfNeeded(void) {
 }
 /**
  * 调用handleClientsWithPendingWrites将缓冲区中的回复发送给client。
+ * 1、handleClientsWithPendingWrites 方法会遍历 clients_pending_write 列表，对于每个 client 都会先调用 writeToClient 方法来尝试将返回数据从输出缓存区写入到 socekt中，
+ *   如果还未写完，则只能调用 aeCreateFileEvent 方法来注册一个写数据事件处理器 sendReplyToClient，等待 Redis 事件机制的再次调用。这样的好处是对于返回数据较少的客户端，不需要麻烦的注册写数据事件，等待事件触发再写数据到 socket，而是在下一次事件循环周期就直接将数据写到 socket中，加快了数据返回的响应速度。
+ *  2、如果 clients_pending_write 队列过长，则处理时间也会很久，阻塞正常的事件响应处理，导致 Redis 后续命令延时增加。
  */
 int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
@@ -3116,11 +3147,13 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
     /* If we have just a few clients to serve, don't use I/O threads, but the
      * boring synchronous code. */
+    //如果client数量少,直接处理,不使用I/O线程池
     if (stopThreadedIOIfNeeded()) {
         return handleClientsWithPendingWrites();
     }
 
     /* Start threads if needed. */
+    // 如果client较多,启动对应的IO线程池
     if (!io_threads_active) startThreadedIO();
 
     if (tio_debug) printf("%d TOTAL WRITE pending clients\n", processed);
@@ -3128,6 +3161,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* Distribute the clients across N different lists. */
     listIter li;
     listNode *ln;
+    //获取clients_pending_write的迭代器
     listRewind(server.clients_pending_write,&li);
     int item_id = 0;
     while((ln = listNext(&li))) {
@@ -3150,6 +3184,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listRewind(io_threads_list[0],&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+        // 将缓冲值写入client的socket中，如果写完，则跳过之后的操作
         writeToClient(c,0);
     }
     listEmpty(io_threads_list[0]);
@@ -3171,7 +3206,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
+        // 还有数据未写入，只能注册写事件处理器了
         if (clientHasPendingReplies(c) &&
+                // 注册写事件处理器 sendReplyToClient，等待执行
                 connSetWriteHandler(c->conn, sendReplyToClient) == AE_ERR)
         {
             freeClientAsync(c);

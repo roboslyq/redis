@@ -2156,7 +2156,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
-    /**  */
+    /**   * */
     handleClientsWithPendingReadsUsingThreads();
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
@@ -2215,7 +2215,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
-    /** =====>将具体的输入buffer输出到客户端 */
+    /** =====>将具体的输入buffer输出到客户端
+     *  1、将响应结果返回给客户端：因为redis所有命令的结果不是直接返回给客户端的，一般是通过addReply方式将数据放至outBuffer中
+     *  然后等待此ae事件发生。
+     *  2、正常因为如此，并且redis是单线程的，所以redis中如果有一个指令阻塞(执行时间长)，会导致其它相关指令得不到执行或者得不到输出结果。
+     *  3、如果指令处理很快，几乎是实时响应没有什么延迟。
+     * */
     handleClientsWithPendingWritesUsingThreads();
 
     /* Close clients that need to be closed asynchronous */
