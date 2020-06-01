@@ -115,7 +115,10 @@ void execCommandPropagateExec(client *c) {
     propagate(server.execCommand,c->db->id,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
 }
-
+/**
+ * 事务提交指令
+ * @param c
+ */
 void execCommand(client *c) {
     int j;
     robj **orig_argv;
