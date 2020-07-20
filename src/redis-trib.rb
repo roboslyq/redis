@@ -104,6 +104,9 @@ end
 $command = ARGV.shift
 $opts, $args = parse_options($command) if $command
 
+# 从下面的WARNING打印我们可以看出，作者已经不建议使用redis-trib.rb，而是使用redis-cli替代redis-trib.rb。
+# 因此redis-cli已经集成了redis-trib.rb功能。
+
 puts "WARNING: redis-trib.rb is not longer available!".yellow
 puts "You should use #{'redis-cli'.bold} instead."
 puts ''

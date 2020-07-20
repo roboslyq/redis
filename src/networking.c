@@ -3208,7 +3208,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
          * of the clients. */
         // 还有数据未写入，只能注册写事件处理器了
         if (clientHasPendingReplies(c) &&
-                // 注册写事件处理器 sendReplyToClient，等待执行
+                // 注册写事件处理器 sendReplyToClient，等待执行readQueryFromClient
                 connSetWriteHandler(c->conn, sendReplyToClient) == AE_ERR)
         {
             freeClientAsync(c);
